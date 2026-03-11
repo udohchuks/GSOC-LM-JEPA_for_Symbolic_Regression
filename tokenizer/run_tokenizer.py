@@ -2,8 +2,7 @@ import sympy
 import sys
 import os
 from sympy.parsing.sympy_parser import parse_expr, standard_transformations
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tokenizer.vocab import known_functions, CONTROL_TOKENS,SPECIAL_TOKENS, OP_MAP
+
 
 from sympy import (
     Add, Mul, Pow, Symbol, Integer, Float, Rational,
@@ -11,6 +10,20 @@ from sympy import (
     sinh, cosh, tanh, asin, acos, atan
 )
 
+
+OP_MAP = {
+    'add': '+',
+    'pow': '**',
+    'mul': '*'
+}
+
+known_functions = ['sin', 'cos', 'tan', 'acos', 'asin', 'atan', 'log', 'exp',
+                    'sinh', 'cosh', 'tanh', 'sqrt', 'abs'
+                    ]
+
+CONTROL_TOKENS = ['[SOS]', '[EOS]', '[PRED]', '[MASK]', '[PAD]']
+
+SPECIAL_TOKENS = list(CONTROL_TOKENS) +  ['[NUM]']
 
 def binarise(expr):
     """
@@ -116,6 +129,11 @@ def formula_to_tokens(formula_str: str) -> tuple:
         'zeta':  sympy.Symbol('zeta'),
         'delta': sympy.Symbol('delta'),
         'Lambda': sympy.Symbol('Lambda'),
+        'I': sympy.Symbol('I'),
+        'E': sympy.Symbol('E'),
+        'N': sympy.Symbol('N'),
+        'S': sympy.Symbol('S'),
+        'O': sympy.Symbol('O'),
         }
         expr = parse_expr(formula_str, local_dict=RESERVED_NAMES,
                   transformations=standard_transformations)
@@ -231,6 +249,11 @@ def test_roundtrip(formula_str: str, verbose: bool = False) -> bool:
         'zeta':  sympy.Symbol('zeta'),
         'delta': sympy.Symbol('delta'),
         'Lambda': sympy.Symbol('Lambda'),
+        'I': sympy.Symbol('I'),
+        'E': sympy.Symbol('E'),
+        'N': sympy.Symbol('N'),
+        'S': sympy.Symbol('S'),
+        'O': sympy.Symbol('O'),
     }
     print(parse_expr(formula_str, local_dict=RESERVED_NAMES, transformations=standard_transformations))
     # Step 1: Tokenize

@@ -5,7 +5,7 @@ import os
 # Add project root to path so we can import tokenizer
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tokenizer.tokenize import formula_to_tokens, test_roundtrip
+from tokenizer.run_tokenizer import formula_to_tokens, test_roundtrip
 
 def load_equations(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
