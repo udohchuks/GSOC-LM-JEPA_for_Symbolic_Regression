@@ -1,0 +1,9 @@
+sympy
+matplotlib
+scikit-learn
+numpy
+scipy>=1.14.0
+pandas
+torch
+nltk
+transformers
