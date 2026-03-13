@@ -255,7 +255,7 @@ def test_roundtrip(formula_str: str, verbose: bool = False) -> bool:
         'S': sympy.Symbol('S'),
         'O': sympy.Symbol('O'),
     }
-    print(parse_expr(formula_str, local_dict=RESERVED_NAMES, transformations=standard_transformations))
+    # print(parse_expr(formula_str, local_dict=RESERVED_NAMES, transformations=standard_transformations))
     # Step 1: Tokenize
     tokens, var_map, var_map_inv, num_values = formula_to_tokens(formula_str)
 

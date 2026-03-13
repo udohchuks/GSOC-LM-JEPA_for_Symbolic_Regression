@@ -117,15 +117,15 @@ def print_vocab_summary(tok2id: dict):
     for tok, idx in sorted(tok2id.items(), key=lambda x: x[1]):
         print(f"  {idx:3d}  {tok}")
 
-if __name__ == '__main__':
-    csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'raw', 'FeynmanEquations.csv')
-    save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'processed')
+# if __name__ == '__main__':
+#     csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'raw', 'FeynmanEquations.csv')
+#     save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'processed')
 
-    tok2id, id2tok = build_vocab(csv_path)
-    print_vocab_summary(tok2id)
-    save_vocab(tok2id, id2tok, save_dir)
+#     tok2id, id2tok = build_vocab(csv_path)
+#     print_vocab_summary(tok2id)
+#     save_vocab(tok2id, id2tok, save_dir)
 
-    # Verify load works
-    tok2id_loaded, id2tok_loaded = load_vocab(save_dir)
-    assert tok2id_loaded == tok2id
-    print("\nLoad verification: PASSED")
+#     # Verify load works
+#     tok2id_loaded, id2tok_loaded = load_vocab(save_dir)
+#     assert tok2id_loaded == tok2id
+#     print("\nLoad verification: PASSED")

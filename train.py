@@ -7,12 +7,7 @@ import argparse
 import numpy as np
 from datetime import datetime
 
-try:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-except NameError:
-    script_dir = os.getcwd()
-sys.path.append(script_dir)
-
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils.plotting import generate_all_plots
 
 import torch
