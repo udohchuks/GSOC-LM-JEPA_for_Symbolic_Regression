@@ -55,7 +55,7 @@ def sigreg_loss(z: torch.Tensor, n_projections: int = 64, lambda_sig: float = 1.
     z = z - z.mean(dim=0, keepdim=True) # shape z -> B x dim
 
     # Step 2: Generate random projection directions
-    directions = torch.randn(n_projections, dim, device=z.device)
+    directions = torch.randn(n_projections, dim, device=z.device, dtype=z.dtype)
     directions = F.normalize(directions, dim=-1) # unit vector
 
     # Step 3: Project embeddings onto each direction
