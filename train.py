@@ -27,21 +27,21 @@ EXPERIMENTS = {
     # Baselines — no JEPA
     'B1': {'use_jepa': False, 'lambda_lejepa': 0.0},
     # JEPA + SIGReg — your core innovation
-    'E2': {'use_jepa': True,  'lambda_lejepa': 0.05},
+    'E2': {'use_jepa': True,  'lambda_lejepa': 0.15},
 }
 
 
 TRAIN_CONFIG = {
-    'batch_size':    32,
+    'batch_size':    16,
     'n_epochs':      300,
-    'lr':            5e-4,    # AdamW learning rate
+    'lr':            3e-4,    # AdamW learning rate
     'weight_decay':  0.1,
     'grad_clip':     1.0,     # gradient clipping — prevents exploding gradients
     'alpha_drop':    0.0,     # JEPA dropout — skip JEPA loss 30% of steps
-    'lambda_lejepa': 0.05,
+    'lambda_lejepa': 0.15,
     'save_every':    5,       # save checkpoint every N epochs
     'log_every':     10,      # print metrics every N steps
-    'collapse_every':50,      # check for collapse every N steps
+    'collapse_every':10,      # check for collapse every N steps
     'n_view_a':      32,      # rows sampled per equation for View A
     'n_bins':        64,
     'max_eq_len':    40,
