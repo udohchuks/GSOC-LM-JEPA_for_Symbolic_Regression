@@ -412,7 +412,6 @@ def plot_summary_card(history: list, exp_name: str,
         f"{'─'*28}\n"
         f"JEPA enabled : {exp_cfg['use_jepa']}\n"
         f"λ_jepa       : {exp_cfg['lambda_lejepa']}\n"
-        f"λ_sig        : {exp_cfg['lambda_sig']}\n"
         f"{'─'*28}\n"
         f"Total epochs : {len(history)}\n"
         f"Best val loss: {best_val:.4f}\n"
