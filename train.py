@@ -27,7 +27,7 @@ EXPERIMENTS = {
     # Baselines — no JEPA
     'B1': {'use_jepa': False, 'lambda_lejepa': 0.0},
     # JEPA + SIGReg — your core innovation
-    'E2': {'use_jepa': True,  'lambda_lejepa': 0.1},
+    'E2': {'use_jepa': True,  'lambda_lejepa': 0.15},
 }
 
 
@@ -38,7 +38,7 @@ TRAIN_CONFIG = {
     'weight_decay':  0.4,
     'grad_clip':     1.0,     # gradient clipping — prevents exploding gradients
     'alpha_drop':    0.3,     # JEPA dropout — skip JEPA loss 30% of steps
-    'lambda_lejepa': 0.1,
+    'lambda_lejepa': 0.15,
     'save_every':    5,       # save checkpoint every N epochs
     'log_every':     10,      # print metrics every N steps
     'collapse_every':10,      # check for collapse every N steps
