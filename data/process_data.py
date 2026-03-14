@@ -27,7 +27,7 @@ PROCESSED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 CSV_PATH     = os.path.join(RAW_DIR, 'raw', 'FeynmanEquations.csv')
 
 MAX_EQ_LEN   = 40       # covers all equations (max was 38)
-N_SAMPLES    = 5000      # rows to sample per equation for training
+N_SAMPLES    = 50000      # rows to sample per equation for training
 RANDOM_SEED  = 42
 
 def load_raw_data(filename: str) -> np.ndarray:

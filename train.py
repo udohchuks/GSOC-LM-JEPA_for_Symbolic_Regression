@@ -42,7 +42,7 @@ TRAIN_CONFIG = {
     'save_every':    5,       # save checkpoint every N epochs
     'log_every':     10,      # print metrics every N steps
     'collapse_every':10,      # check for collapse every N steps
-    'n_view_a':      100000,      # rows sampled per equation for View A
+    'n_view_a':      40,      # rows sampled per equation for View A
     'n_bins':        64,
     'max_eq_len':    40,
     'num_projections': 1024,
