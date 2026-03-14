@@ -35,7 +35,7 @@ TRAIN_CONFIG = {
     'batch_size':    16,
     'n_epochs':      300,
     'lr':            3e-4,    # AdamW learning rate
-    'weight_decay':  0.3,
+    'weight_decay':  0.4,
     'grad_clip':     1.0,     # gradient clipping — prevents exploding gradients
     'alpha_drop':    0.3,     # JEPA dropout — skip JEPA loss 30% of steps
     'lambda_lejepa': 0.15,
@@ -401,10 +401,10 @@ def main(exp_name: str):
             )
 
         if val_metrics['val_loss_lm'] < best_val_loss:
-        best_val_loss = val_metrics['val_loss_lm']
-        no_improve    = 0
-        save_checkpoint(model, optimiser, epoch, metrics,
-                        f'{exp_name}_best', save_dir)
+            best_val_loss = val_metrics['val_loss_lm']
+            no_improve    = 0
+            save_checkpoint(model, optimiser, epoch, metrics,
+                            f'{exp_name}_best', save_dir)
         else:
             no_improve += 1
             if no_improve >= patience:
