@@ -358,6 +358,9 @@ def main(exp_name: str):
     history = []
     collapse_log = []
     best_val_loss = float('inf')
+    patience     = 30
+    no_improve   = 0
+
 
     for epoch in range(1, train_cfg['n_epochs'] + 1):
         print(f"\nEpoch {epoch}/{train_cfg['n_epochs']}")
@@ -397,13 +400,17 @@ def main(exp_name: str):
                 exp_name, save_dir
             )
 
-        # Save best model
         if val_metrics['val_loss_lm'] < best_val_loss:
-            best_val_loss = val_metrics['val_loss_lm']
-            save_checkpoint(
-                model, optimiser, epoch, metrics,
-                f'{exp_name}_best', save_dir
-            )
+        best_val_loss = val_metrics['val_loss_lm']
+        no_improve    = 0
+        save_checkpoint(model, optimiser, epoch, metrics,
+                        f'{exp_name}_best', save_dir)
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                print(f"\nEarly stopping at epoch {epoch} "
+                    f"— no val improvement for {patience} epochs")
+                break
         
     # ── Save training log ─────────────────────────────────────────────
     os.makedirs('results', exist_ok=True)
