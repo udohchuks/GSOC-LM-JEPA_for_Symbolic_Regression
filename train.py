@@ -152,7 +152,7 @@ def jepa_step(model, view_a, view_b, device,
         # This prevents collapse without needing an EMA teacher
         loss_sig = (
             sigreg_loss(z_pred, global_step=global_step*2, num_projections=num_projections)
-            + sigreg_loss(z_pred, global_step=global_step*2+1, num_projections=num_projections)
+            + sigreg_loss(z_target, global_step=global_step*2+1, num_projections=num_projections)
         )
 
 
