@@ -20,7 +20,7 @@ CONFIG = {
     "head_dim": 64,      # emb_dim // num_heads = 512 // 8
     "context_length": 512,
     "vocab_size": 110, # 46 equation + 64 bin tokens
-    "n_layers": 3,
+    "n_layers": 4,
     "dtype": torch.bfloat16,
     "len_a": 220, # max View A length (9-var equation)
     "len_b": 40, # max View B length
