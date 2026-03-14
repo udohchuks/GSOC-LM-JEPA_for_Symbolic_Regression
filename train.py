@@ -421,7 +421,7 @@ def main(exp_name: str):
     return history, exp_cfg, collapse_log
 
 if __name__ == '__main__':
-    exp_name = 'B1'
+    exp_name = 'E2'
     history, exp_cfg, collapse_log = main(exp_name)
     generate_all_plots(
         history      = history,
