@@ -87,7 +87,7 @@ def build_dataloaders(splits, tok2id, cfg):
     return train_loader, val_loader
 
 def jepa_step(model, view_a, view_b, device,
-              lambda_lejepa, global_step, alpha_drop):
+              lambda_lejepa, global_step, num_projections ,alpha_drop):
     """
     One forward pass with JEPA + SIGReg loss.
 
@@ -205,6 +205,7 @@ def train_one_epoch(model, loader, optimiser,
                     lambda_lejepa = exp_cfg['lambda_lejepa'],
                     global_step   = global_step, 
                     alpha_drop  = train_cfg['alpha_drop'],
+                    num_projections= train_cfg['num_projections']
                 )
             else:
                 loss_lm   = baseline_step(model, view_b, device)
