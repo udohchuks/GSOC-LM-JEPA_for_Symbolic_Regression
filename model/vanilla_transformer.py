@@ -25,7 +25,7 @@ CONFIG = {
     "len_a": 220, # max View A length (9-var equation)
     "len_b": 40, # max View B length
     "pad_id": 0,
-    "dropout": 0.1,
+    "dropout": 0.2,
 }
 
 

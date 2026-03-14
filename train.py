@@ -35,9 +35,9 @@ TRAIN_CONFIG = {
     'batch_size':    16,
     'n_epochs':      300,
     'lr':            3e-4,    # AdamW learning rate
-    'weight_decay':  0.1,
+    'weight_decay':  0.3,
     'grad_clip':     1.0,     # gradient clipping — prevents exploding gradients
-    'alpha_drop':    0.0,     # JEPA dropout — skip JEPA loss 30% of steps
+    'alpha_drop':    0.3,     # JEPA dropout — skip JEPA loss 30% of steps
     'lambda_lejepa': 0.15,
     'save_every':    5,       # save checkpoint every N epochs
     'log_every':     10,      # print metrics every N steps
