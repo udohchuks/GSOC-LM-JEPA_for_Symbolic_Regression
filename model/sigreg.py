@@ -35,54 +35,72 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-def sigreg_loss(z: torch.Tensor, n_projections: int = 64, lambda_sig: float = 1.0) -> torch.Tensor:
+def sigreg_loss(z: torch.Tensor, global_step: int = 0, 
+                    num_projections: int = 512, num_integration_points: int = 17, 
+                    integration_range: float = 5.0) -> torch.Tensor:
     """
-    Compute SIGReg loss for a batch of embeddings.
+    SIGReg loss using Epps-Pulley statistic (Algorithm 1, LeJEPA paper).
 
     Args:
         z:             [B, d_model]  batch of embedding vectors
-        n_projections: number of random projection directions
-                       more projections = better Gaussian approximation
-                       but slower. 64 is a good default.
-        lambda_sig:    weight of the SIGReg loss
+
+        n_projections: number of random 1D projection directions (M in paper)
+                       Paper recommends 1024 for best results
+                       default. Even 64 works due to SGD resampling effect.
+
+        num_intergration_points :  number of integration points for trapezoidal rule
+                       Paper uses 17 — sufficient for accurate integration
+
+        integration_range:       integration domain [-t_range, t_range]
+                       Paper uses [-5, 5]
+
+        global_step:   used to seed random projection sampling
+                       ensures different projections each step (key for
+                       SGD to cover the full space over training)
 
     Returns:
-        scalar loss — zero when z is perfectly isotropic Gaussian
+        scalar SIGReg loss
     """
     B, dim = z.shape
+    device = z.device
 
-    # Step 1: Normalise embeddings to zero mean
-    z = z - z.mean(dim=0, keepdim=True) # shape z -> B x dim
+    g = torch.Generator(device=device)
+    g.manual_seed(global_step)
 
-    # Step 2: Generate random projection directions
-    directions = torch.randn(n_projections, dim, device=z.device, dtype=z.dtype)
-    directions = F.normalize(directions, dim=-1) # unit vector
+    # Step 2: Generate random projection directions -> shape (dim x num_projections)
+    directions = torch.randn(dim, num_projections, generator=g,  device=device, dtype=z.dtype)
+    directions = F.normalize(directions, dim=0) # unit vector
 
-    # Step 3: Project embeddings onto each direction
-    projections = z @ directions.T
+    # Shape: (num_integration_points,)
+    t = torch.linspace(-integration_range, integration_range, 
+                       num_integration_points, device=device, dtype=z.dtype)
+    
 
-    # Step 4: Match characteristic function of N(0,1)
-    # The characteristic function of N(0,1) at frequency t is:
-    #   phi(t) = E[e^(itX)] = e^(-t^2/2)
-    # Which gives:
-    #   E[cos(tX)] = e^(-t^2/2)    (real part)
-    #   E[sin(tX)] = 0              (imaginary part — N(0,1) is symmetric)
-    #
-    # We evaluate at t=1 (standard frequency):
-    #   Target cos moment: e^(-0.5) ≈ 0.6065
-    #   Target sin moment: 0.0
+    #  Theoretical CF for N(0,1) -> exp(-0.5 * t^2)
+    # Shape: (num_integration_points,)
+    target_cf = torch.exp(-0.5 * t ** 2)
 
-    cos_emperical = torch.cos(projections).mean(dim=0)
-    sin_emperical = torch.sin(projections).mean(dim=0)
+    # Project embeddings onto each direction
+    # (B, K) * (K, S) -> (B, S)
+    z_proj = z @ directions
+    
+    # Multiply by t: (B, S, 1) * (1, 1, T) -> (B, S, T)
+    z_proj = z_proj.unsqueeze(-1) * t.unsqueeze(0).unsqueeze(0)
 
-    cos_target = torch.exp(torch.tensor(-0.5, device=z.device))
+    # E[exp(i * t * z)] -> Mean over Batch
+    # torch.exp(1j * x) is complex exponential
+    emp_cf = torch.exp(1j * z_proj).mean(dim=0)  # (S, T)
 
-    sin_target = torch.tensor(0.0, device=z.device)
+    diff = (emp_cf - target_cf.unsqueeze(0)).abs() ** 2  # (S, T)
+    weighted_diff = diff * target_cf.unsqueeze(0)  # Weight by target CF
+    
+    # 6. Integrate over t (Trapezoidal Rule)
+    # Sum over T, then Mean over S
+    loss_t = torch.trapz(weighted_diff, t, dim=1)  # (S,)
 
-    loss_cos = (cos_emperical - cos_target).pow(2).mean()
-    loss_sin = (sin_emperical - sin_target).pow(2).mean()
-
-    return lambda_sig * (loss_cos + loss_sin)
+    loss = loss_t.mean()  # Scalar
+    
+    return loss
 
 
 def monitor_collapse(z: torch.Tensor) -> dict:
@@ -101,6 +119,7 @@ def monitor_collapse(z: torch.Tensor) -> dict:
         # Healthy: ~1.0   Collapsing: approaching 0
 
         variance = z.var(dim=0).mean().item()
+        mean_norm = z.mean(dim=0).norm().item()
 
         # Standard deviation of norms
         # Healthy: embeddings have varied magnitudes
@@ -125,6 +144,7 @@ def monitor_collapse(z: torch.Tensor) -> dict:
     
     return {
         'variance':     variance,
+        'mean_norm':    mean_norm, 
         'norm_mean':    norm_mean,
         'norm_std':     norm_std,
         'mean_cosine':  mean_cosine,

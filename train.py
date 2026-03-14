@@ -25,26 +25,27 @@ from model.sigreg import sigreg_loss, monitor_collapse
 
 EXPERIMENTS = {
     # Baselines — no JEPA
-    'B1': {'use_jepa': False, 'lambda_jepa': 0.0, 'lambda_sig': 0.0},
+    'B1': {'use_jepa': False, 'lambda_lejepa': 0.0},
     # JEPA + SIGReg — your core innovation
-    'E2': {'use_jepa': True,  'lambda_jepa': 1.0, 'lambda_sig': 1.0},
+    'E2': {'use_jepa': True,  'lambda_lejepa': 0.05},
 }
 
 
 TRAIN_CONFIG = {
-    'batch_size':    8,       # small — only 77 training equations
-    'n_epochs':      50,
-    'lr':            3e-4,    # AdamW learning rate
+    'batch_size':    32,
+    'n_epochs':      300,
+    'lr':            5e-4,    # AdamW learning rate
     'weight_decay':  0.1,
     'grad_clip':     1.0,     # gradient clipping — prevents exploding gradients
-    'alpha_drop':    0.3,     # JEPA dropout — skip JEPA loss 30% of steps
-                              # reduces compute, adds regularisation
+    'alpha_drop':    0.0,     # JEPA dropout — skip JEPA loss 30% of steps
+    'lambda_lejepa': 0.05,
     'save_every':    5,       # save checkpoint every N epochs
     'log_every':     10,      # print metrics every N steps
     'collapse_every':50,      # check for collapse every N steps
-    'n_view_a':      20,      # rows sampled per equation for View A
+    'n_view_a':      32,      # rows sampled per equation for View A
     'n_bins':        64,
     'max_eq_len':    40,
+    'num_projections': 1024,
 }
 
 def get_device():
@@ -86,7 +87,7 @@ def build_dataloaders(splits, tok2id, cfg):
     return train_loader, val_loader
 
 def jepa_step(model, view_a, view_b, device,
-              lambda_jepa, lambda_sig, alpha_drop):
+              lambda_lejepa, global_step, alpha_drop):
     """
     One forward pass with JEPA + SIGReg loss.
 
@@ -144,25 +145,20 @@ def jepa_step(model, view_a, view_b, device,
         z_target = (hidden_b * pad_mask).sum(1) / \
                     pad_mask.sum(1).clamp(min=1e-8)      # [B, d_model]
 
-        # Detach z_target — we do not backprop through the target
-        # SIGReg provides the anti-collapse signal instead
-        z_target = z_target.detach()
-
-        # JEPA cosine distance loss
-        # 1 - cosine_similarity so minimum is 0 (perfect alignment)
-        loss_jepa = (
-            1 - F.cosine_similarity(z_pred, z_target, dim=-1)
-        ).mean()
+        # L2 distance
+        loss_jepa = ((z_pred - z_target) ** 2).mean()
 
         # SIGReg — force z_pred toward isotropic Gaussian
         # This prevents collapse without needing an EMA teacher
-        loss_sig = sigreg_loss(z_pred, lambda_sig=lambda_sig)
+        loss_sig = sigreg_loss(z_pred, global_step=global_step, num_projections=num_projections)
 
 
     # Scale JEPA losses by effective lambda
-    effective_lambda = lambda_jepa / (1 - alpha_drop + 1e-8)
+    effective_lambda = lambda_lejepa / (1 - alpha_drop + 1e-8)
+    loss_lejepa = lambda_lejepa * loss_sig + (1 - lambda_lejepa) * loss_jepa
 
-    return loss_lm, loss_jepa, loss_sig, effective_lambda, skip_jepa
+    loss = loss_lm + (loss_lejepa * effective_lambda)
+    return loss_lm, loss_jepa, loss_sig, loss, skip_jepa
 
 
 def baseline_step(model, view_b, device):
@@ -193,6 +189,8 @@ def train_one_epoch(model, loader, optimiser,
     total_loss = 0.0
     n_steps    = 0
 
+    global_step = (epoch - 1) * len(loader)
+
     for step, (view_a, view_b, n_vars) in enumerate(loader):
         view_a = view_a.to(device)
         view_b = view_b.to(device)
@@ -202,18 +200,18 @@ def train_one_epoch(model, loader, optimiser,
         # ── Forward pass ──────────────────────────────────────────────
         with torch.amp.autocast('cuda', enabled=device.type == 'cuda'):
             if exp_cfg['use_jepa']:
-                loss_lm, loss_jepa, loss_sig, eff_lam, skipped = jepa_step(
+                loss_lm, loss_jepa, loss_sig, loss, skipped = jepa_step(
                     model, view_a, view_b, device,
-                    lambda_jepa = exp_cfg['lambda_jepa'],
-                    lambda_sig  = exp_cfg['lambda_sig'],
+                    lambda_lejepa = exp_cfg['lambda_lejepa'],
+                    global_step   = global_step, 
                     alpha_drop  = train_cfg['alpha_drop'],
                 )
-                loss = loss_lm + eff_lam * loss_jepa + loss_sig
             else:
                 loss_lm   = baseline_step(model, view_b, device)
                 loss_jepa = torch.tensor(0.0)
                 loss_sig  = torch.tensor(0.0)
                 loss      = loss_lm
+
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimiser.step()
@@ -223,6 +221,7 @@ def train_one_epoch(model, loader, optimiser,
         total_sig  += loss_sig.item()
         total_loss += loss.item()
         n_steps    += 1
+        global_step += 1
 
         if step % train_cfg['log_every'] == 0:
             print(f"  Ep{epoch:02d} step{step:03d} | "
