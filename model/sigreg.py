@@ -12,11 +12,8 @@ How it works:
     Force the distribution of embeddings across a batch to be
     approximately isotropic Gaussian (mean=0, variance=1 in all directions).
 
-    Uses random 1D projections + characteristic function matching:
-    1. Project embeddings onto random unit vectors
-    2. Compare the projected distribution to N(0,1)
-       using characteristic function (cos and sin moments)
-    3. Penalise deviation from Gaussian
+   Uses Epps-Pulley test via random 1D projections.
+   Real/imaginary parts computed separately for numerical stability.
 
 Why this works:
     An isotropic Gaussian cannot collapse — by definition it has
@@ -32,7 +29,6 @@ Why better than EMA teacher:
 
 import torch
 import torch.nn.functional as F
-import torch.nn as nn
 
 
 def sigreg_loss(z: torch.Tensor, global_step: int = 0, 
@@ -63,13 +59,14 @@ def sigreg_loss(z: torch.Tensor, global_step: int = 0,
     """
     B, dim = z.shape
     device = z.device
+    dtype = z.dtype
 
     g = torch.Generator(device=device)
     g.manual_seed(global_step)
 
     # Step 2: Generate random projection directions -> shape (dim x num_projections)
-    directions = torch.randn(dim, num_projections, generator=g,  device=device, dtype=z.dtype)
-    directions = F.normalize(directions, dim=0) # unit vector
+    A = torch.randn(dim, num_projections, generator=g,  device=device, dtype=dtype)
+    A = F.normalize(A, p=2, dim=0) # unit vector
 
     # Shape: (num_integration_points,)
     t = torch.linspace(-integration_range, integration_range, 
@@ -82,23 +79,19 @@ def sigreg_loss(z: torch.Tensor, global_step: int = 0,
 
     # Project embeddings onto each direction
     # (B, K) * (K, S) -> (B, S)
-    z_proj = z @ directions
+    z_proj = z @ A
     
     # Multiply by t: (B, S, 1) * (1, 1, T) -> (B, S, T)
-    z_proj = z_proj.unsqueeze(-1) * t.unsqueeze(0).unsqueeze(0)
+    x_t = z_proj.unsqueeze(-1) * t.unsqueeze(0).unsqueeze(0)
 
-    # E[exp(i * t * z)] -> Mean over Batch
-    # torch.exp(1j * x) is complex exponential
-    emp_cf = torch.exp(1j * z_proj).mean(dim=0)  # (S, T)
 
-    diff = (emp_cf - target_cf.unsqueeze(0)).abs() ** 2  # (S, T)
-    weighted_diff = diff * target_cf.unsqueeze(0)  # Weight by target CF
+    ecf_real = torch.cos(x_t).mean(dim=0) # (S, T)
+    ecf_imag = torch.sin(x_t).mean(dim=0) # (S, T)
+
+    err = ((ecf_real - target_cf.unsqueeze(0)) ** 2 +
+            ecf_imag ** 2) * target_cf.unsqueeze(0) # (S, T)
     
-    # 6. Integrate over t (Trapezoidal Rule)
-    # Sum over T, then Mean over S
-    loss_t = torch.trapz(weighted_diff, t, dim=1)  # (S,)
-
-    loss = loss_t.mean()  # Scalar
+    loss = torch.trapezoid(err, t, dim=1).mean()  
     
     return loss
 

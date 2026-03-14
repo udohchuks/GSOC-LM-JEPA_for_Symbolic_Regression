@@ -150,14 +150,16 @@ def jepa_step(model, view_a, view_b, device,
 
         # SIGReg — force z_pred toward isotropic Gaussian
         # This prevents collapse without needing an EMA teacher
-        loss_sig = sigreg_loss(z_pred, global_step=global_step, num_projections=num_projections)
+        loss_sig = (
+            sigreg_loss(z_pred, global_step=global_step*2, num_projections=num_projections)
+            + sigreg_loss(z_pred, global_step=global_step*2+1, num_projections=num_projections)
+        )
 
 
-    # Scale JEPA losses by effective lambda
-    effective_lambda = lambda_lejepa / (1 - alpha_drop + 1e-8)
+    
     loss_lejepa = lambda_lejepa * loss_sig + (1 - lambda_lejepa) * loss_jepa
 
-    loss = loss_lm + (loss_lejepa * effective_lambda)
+    loss = loss_lm + loss_lejepa
     return loss_lm, loss_jepa, loss_sig, loss, skip_jepa
 
 
