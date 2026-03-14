@@ -14,18 +14,18 @@ import torch.nn.functional as F
 
 
 CONFIG = {
-    "emb_dim":  64,
-    "hidden_dim": 256,
+    "emb_dim":  256,
+    "hidden_dim": 1024,
     "num_heads": 8,
-    "head_dim": 64,      # emb_dim // num_heads = 512 // 8
+    "head_dim": 32,      # emb_dim // num_heads = 512 // 8
     "context_length": 512,
     "vocab_size": 110, # 46 equation + 64 bin tokens
-    "n_layers": 4,
+    "n_layers": 6,
     "dtype": torch.bfloat16,
     "len_a": 220, # max View A length (9-var equation)
     "len_b": 40, # max View B length
     "pad_id": 0,
-    "dropout": 0.2,
+    "dropout": 0.1,
 }
 
 
