@@ -109,12 +109,12 @@ def add_gaussian_noise(y: np.ndarray,
 
 # ── 3. Unit stack simulation ──────────────────────────────────────────────────
 
-# Import here to avoid circular imports at module level
-    from data.unit_table import (
-        N_UNIT_DIMS, UNIT_OFFSET, N_UNIT_CLASSES,
-        get_unit_vector, DIMENSIONLESS
-    )
-    from data.tokenizer import ARITY, UNARY_TOKENS, BINARY_TOKENS
+# Unit stack simulation constants and utilities
+from data.unit_table import (
+    N_UNIT_DIMS, UNIT_OFFSET, N_UNIT_CLASSES,
+    get_unit_vector, DIMENSIONLESS
+)
+from data.tokenizer import ARITY, UNARY_TOKENS, BINARY_TOKENS
 
 def _propagate_units(operator: str,
                      stack: List[List[int]]) -> Optional[List[int]]:

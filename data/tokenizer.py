@@ -31,8 +31,8 @@ VARIABLE_TOKENS = [f'x{i}' for i in range(1, 10)]
 # ── Constants ─────────────────────────────────────────────────────────────────
 # Simple rationals and mathematical constants that appear in physics formulas
 # Arbitrary numerical constants are handled by BFGS post-processing at inference
-CONSTANT_TOKENS = ['0', '1', '2', '3', 'pi', 'e']
-
+CONSTANT_TOKENS = ['0', '1', '2', '3', 'pi', 'e',
+                   'c1', 'c2', 'c3', 'c4', 'c5']
 # ── Binary operators ──────────────────────────────────────────────────────────
 BINARY_TOKENS = ['+', '-', '*', '/']
 
@@ -229,10 +229,11 @@ def _sympy_to_rpn(expr: sympy.Expr,
     Postorder traversal: children before parent.
     """
     tokens: List[str] = []
-    _traverse(expr, var_map, tokens)
+    const_counter = [0]
+    _traverse(expr, var_map, tokens, const_counter)
     return tokens
 
-def _traverse(expr, var_map, tokens):
+def _traverse(expr, var_map, tokens, const_counter):
     """Recursive postorder traversal."""
     # ── Variables ─────────────────────────────────────────────────────────────
     if isinstance(expr, sympy.Symbol):
@@ -245,7 +246,7 @@ def _traverse(expr, var_map, tokens):
     # ── Integer constants ─────────────────────────────────────────────────────
     if isinstance(expr, sympy.Integer):
         val = str(int(expr))
-        tokens.append(val if val in TOKEN2IDX else '1')
+        tokens.append(val if val in TOKEN2IDX else _next_const(const_counter))
         return
     # ── pi and e ──────────────────────────────────────────────────────────────
     if expr == sympy.pi:
@@ -258,58 +259,58 @@ def _traverse(expr, var_map, tokens):
     if isinstance(expr, sympy.Float):
         val = float(expr)
         rounded = str(int(round(val)))
-        tokens.append(rounded if rounded in TOKEN2IDX else '1')
+        tokens.append(_next_const(const_counter))
         return
     
     # ── Rational: express as numerator / denominator ──────────────────────────
     if isinstance(expr, sympy.Rational):
-        _traverse(sympy.Integer(expr.p), var_map, tokens)
-        _traverse(sympy.Integer(expr.q), var_map, tokens)
+        _traverse(sympy.Integer(expr.p), var_map, tokens, const_counter)
+        _traverse(sympy.Integer(expr.q), var_map, tokens, const_counter)
         tokens.append('/')
         return
     # ── Negation: -x → x neg ──────────────────────────────────────────────────
     if isinstance(expr, sympy.Mul) and expr.args[0] == sympy.Integer(-1):
         inner = sympy.Mul(*expr.args[1:])
-        _traverse(inner, var_map, tokens)
+        _traverse(inner, var_map, tokens, const_counter)
         tokens.append('neg')
         return
     # ── Addition: a+b+c → a b + c + ───────────────────────────────────────────
     if isinstance(expr, sympy.Add):
         args = list(expr.args)
-        _traverse(args[0], var_map, tokens)
+        _traverse(args[0], var_map, tokens, const_counter)
         for arg in args[1:]:
-            _traverse(arg, var_map, tokens)
+            _traverse(arg, var_map, tokens, const_counter)
             tokens.append('+')
         return
     
     # ── Multiplication: a*b*c → a b * c * ────────────────────────────────────
     if isinstance(expr, sympy.Mul):
         args = list(expr.args)
-        _traverse(args[0], var_map, tokens)
+        _traverse(args[0], var_map, tokens, const_counter)
         for arg in args[1:]:
-            _traverse(arg, var_map, tokens)
+            _traverse(arg, var_map, tokens, const_counter)
             tokens.append('*')
         return
     # ── Powers ────────────────────────────────────────────────────────────────
     if isinstance(expr, sympy.Pow):
         base, exp_val = expr.args
         if exp_val == sympy.Integer(2):
-            _traverse(base, var_map, tokens)
+            _traverse(base, var_map, tokens, const_counter)
             tokens.append('sq')
         elif exp_val == sympy.Integer(-1):
-            _traverse(base, var_map, tokens)
+            _traverse(base, var_map, tokens, const_counter)
             tokens.append('inv')
         elif exp_val == sympy.Rational(1, 2):
-            _traverse(base, var_map, tokens)
+            _traverse(base, var_map, tokens, const_counter)
             tokens.append('sqrt')
         elif exp_val == sympy.Rational(-1, 2):
-            _traverse(base, var_map, tokens)
+            _traverse(base, var_map, tokens, const_counter)
             tokens.append('sqrt')
             tokens.append('inv')
         else:
             # Fallback for other powers
-            _traverse(base, var_map, tokens)
-            _traverse(exp_val, var_map, tokens)
+            _traverse(base, var_map, tokens, const_counter)
+            _traverse(exp_val, var_map, tokens, const_counter)
             tokens.append('*')
         return
     # ── Standard unary functions ──────────────────────────────────────────────
@@ -327,13 +328,96 @@ def _traverse(expr, var_map, tokens):
     }
     func_name = type(expr).__name__
     if func_name in SYMPY_UNARY_MAP:
-        _traverse(expr.args[0], var_map, tokens)
+        _traverse(expr.args[0], var_map, tokens, const_counter)
         tokens.append(SYMPY_UNARY_MAP[func_name])
         return
     
     # ── Fallback ──────────────────────────────────────────────────────────────
     raise ValueError(f"Unsupported expression: {type(expr).__name__}: {expr}")
 
+def _next_const(counter: List[int]) -> str:
+    """
+    Return the next available constant placeholder token.
+    counter is a mutable list so recursive calls share state.
+    """
+    MAX_CONSTS = 5
+    idx = counter[0] % MAX_CONSTS + 1   # cycles c1...c5
+    counter[0] += 1
+    return f'c{idx}'
+
+
+def rpn_to_sympy(tokens: List[str]) -> sympy.Expr:
+    """
+    Convert a list of RPN tokens back into a SymPy expression.
+    This preserves specific tokens like 'c1', 'x1', etc. 
+    as SymPy Symbols.
+    """
+    # Inverse mappings for unary/binary operations
+    SYMPY_UNARY_INV = {
+        'sqrt':   sympy.sqrt,
+        'sq':     lambda x: x**2,
+        'exp':    sympy.exp,
+        'log':    sympy.log,
+        'sin':    sympy.sin,
+        'cos':    sympy.cos,
+        'tan':    sympy.tan,
+        'arcsin': sympy.asin,
+        'arccos': sympy.acos,
+        'arctan': sympy.atan,
+        'inv':    lambda x: 1/x,
+        'abs':    sympy.Abs,
+        'neg':    lambda x: -x,
+    }
+
+    SYMPY_BINARY_INV = {
+        '+': lambda a, b: a + b,
+        '-': lambda a, b: a - b,
+        '*': lambda a, b: a * b,
+        '/': lambda a, b: a / b,
+    }
+
+    stack = []
+    
+    for tok in tokens:
+        if tok in (PAD_TOKEN, BOS_TOKEN, EOS_TOKEN):
+            continue
+            
+        arity = ARITY.get(tok, 0)
+        
+        if arity == 0:
+            if tok == 'pi':
+                stack.append(sympy.pi)
+            elif tok == 'e':
+                stack.append(sympy.E)
+            elif tok in ['0', '1', '2', '3']:
+                stack.append(sympy.Integer(tok))
+            else:
+                # Variables (x1..x9) and constants (c1..c5) map to Symbols
+                stack.append(sympy.Symbol(tok))
+                
+        elif arity == 1:
+            if len(stack) < 1:
+                raise ValueError(f"Not enough arguments for unary operator {tok}")
+            arg = stack.pop()
+            func = SYMPY_UNARY_INV.get(tok)
+            if not func:
+                raise ValueError(f"Unknown unary operator {tok}")
+            stack.append(func(arg))
+            
+        elif arity == 2:
+            if len(stack) < 2:
+                raise ValueError(f"Not enough arguments for binary operator {tok}")
+            right = stack.pop()
+            left = stack.pop()
+            func = SYMPY_BINARY_INV.get(tok)
+            if not func:
+                raise ValueError(f"Unknown binary operator {tok}")
+            stack.append(func(left, right))
+            
+    if len(stack) != 1:
+        raise ValueError("Invalid RPN sequence: stack does not contain exactly 1 element at the end")
+        
+    return stack[0]
 
 # Quick test at bottom of file (or in a test script)
 if __name__ == '__main__':

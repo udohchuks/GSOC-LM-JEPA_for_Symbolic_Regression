@@ -1,0 +1,6 @@
+data:
+  csv_path:    "data/feynman/FeynmanEquations.csv"
+  data_dir:    "data/feynman/"     
+  cache_dir:   "cache/"            # preprocessed .pt files live here
+  n_rows:      200                 # rows subsampled per equation per step
+  max_n_vars:  9

@@ -78,64 +78,61 @@ def parse_equations_csv(csv_path: str | Path) -> List[EquationMeta]:
     """
     Parse the Feynman equations CSV file.
 
-    CSV format per row:
-        eq_id, n_vars, output_name, formula,
-        v1_name, v1_low, v1_high,
-        v2_name, v2_low, v2_high, ...
+    Actual CSV structure:
+        Col 0: Filename (eq_id)
+        Col 1: Number (ignored)
+        Col 2: Output name
+        Col 3: Formula string
+        Col 4: # variables (n_vars)
+        Col 5,6,7:   v1_name, v1_low, v1_high
+        Col 8,9,10:  v2_name, v2_low, v2_high
+        ...  (3 columns per variable)
+        Up to 10 variables (columns go to col 34)
 
-    The variable columns repeat in groups of 4 (num, name, low, high).
-    Empty variable slots exist for equations with fewer than 9 variables.
-
-    Args:
-        csv_path: path to FeynmanEquations.csv
-
-    Returns:
-        List of EquationMeta, one per valid equation row.
+    First row is a header — skipped automatically.
+    File may have a UTF-8 BOM — handled by encoding='utf-8-sig'.
     """
     equations = []
-    with open(csv_path, 'r', newline='') as f:
-        reader = csv.reader(f)
-        for row in reader:
 
-            if not row or not row[0].strip():
-                continue
-            
-            # Skip header rows
-            first = row[0].strip().lower()
-            if first == 'filename':
-                continue
-            
+    # utf-8-sig handles the   character at the start of the file
+    with open(csv_path, 'r', newline='', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        # DictReader uses the header row as keys automatically
+
+        for row in reader:
             try:
-                eq_id       = row[0].strip()
-                n_vars      = int(row[1].strip())
-                output_name = row[2].strip()
-                formula_str = row[3].strip()
+                eq_id       = row['Filename'].strip()
+                n_vars      = int(row['# variables'].strip())
+                output_name = row['Output'].strip()
+                formula_str = row['Formula'].strip()
 
                 var_names: List[str]   = []
                 var_lows:  List[float] = []
                 var_highs: List[float] = []
 
-                # Variable columns start at index 4
-                # Each variable occupies 3 columns:  name, low, high
-                for i in range(n_vars):
-                    base = 4 + i * 3
-                    if base + 3 >= len(row):
+                # Read variable columns: v1_name, v1_low, v1_high, ...
+                for i in range(1, n_vars + 1):
+                    name_key = f'v{i}_name'
+                    low_key  = f'v{i}_low'
+                    high_key = f'v{i}_high'
+
+                    name = row.get(name_key, '').strip()
+                    low  = row.get(low_key,  '').strip()
+                    high = row.get(high_key, '').strip()
+
+                    if not name:
                         break
 
-                    v_name = row[base + 1].strip()
-                    v_low  = float(row[base + 2].strip())
-                    v_high = float(row[base + 3].strip())
-
-                    if v_name:
-                        var_names.append(v_name)
-                        var_lows.append(v_low)
-                        var_highs.append(v_high)
+                    var_names.append(name)
+                    var_lows.append(float(low))
+                    var_highs.append(float(high))
                 
 
                 if len(var_names) != n_vars:
                     print(f"Warning: {eq_id} expected {n_vars} vars, "
                           f"parsed {len(var_names)} — skipping")
                     continue
+
                 equations.append(EquationMeta(
                     eq_id=eq_id,
                     n_vars=n_vars,
@@ -147,7 +144,7 @@ def parse_equations_csv(csv_path: str | Path) -> List[EquationMeta]:
                 ))
             except (ValueError, IndexError) as e:
                 print(f"Warning: skipping malformed row "
-                      f"{row[0]!r}: {e}")
+                      f"{row.get('Filename', 'Unknown')!r}: {e}")
                 continue
     return equations    
 
@@ -186,6 +183,8 @@ class PreprocessedEquation:
         self.formula_str      = formula_str
         self.n_vars           = n_vars
 
+
+
 def preprocess_equation(
     meta:     EquationMeta,
     data_dir: str | Path,
@@ -193,6 +192,9 @@ def preprocess_equation(
 ) -> Optional[PreprocessedEquation]:
     """
     Preprocess one AIF equation: load data, encode, tokenise.
+
+    Expected data file location:
+        {data_dir}/{meta.eq_id}
 
     Steps:
         1. Find and load the data file
@@ -211,31 +213,38 @@ def preprocess_equation(
         PreprocessedEquation or None if any step failed.
     """
     # ── Step 1: Find and load data file ──────────────────────────────────
+    
     data_dir = Path(data_dir)
-    data_path = None
+    data_path = data_dir / meta.eq_id
 
-    # Try common filename patterns
-    for candidate in [
-        data_dir / meta.eq_id,
-        data_dir / f"{meta.eq_id}.csv",
-        data_dir / f"{meta.eq_id}.txt",
-        data_dir / f"{meta.eq_id}.dat",
-    ]:
-        if candidate.exists():
-            data_path = candidate
-            break
-
-    if data_path is None:
-        print(f"Warning: data file not found for {meta.eq_id}")
+    if not data_path.exists():
+        print(
+            f"Data file not found: {data_path}\n"
+            f"  Expected a file named exactly '{meta.eq_id}' "
+            f"with no extension in {data_dir}"
+        )
         return None
+
     try:
         data = np.loadtxt(str(data_path), max_rows=max_rows)
     except Exception as e:
         print(f"Warning: could not load {data_path}: {e}")
         return None
+
     # Handle edge case: single-row file gives 1D array
     if data.ndim == 1:
         data = data.reshape(1, -1)
+    
+    # Validate column count
+    expected_cols = meta.n_vars + 1
+    if data.shape[1] != expected_cols:
+        print(
+            f"Column mismatch in {meta.eq_id}: "
+            f"expected {expected_cols} columns "
+            f"(n_vars={meta.n_vars} + 1 output), "
+            f"got {data.shape[1]}"
+        )
+        return None
     
     X = data[:, :meta.n_vars].astype(np.float32)  # [N, n_vars]
     y = data[:,  meta.n_vars].astype(np.float32)  # [N]
@@ -543,10 +552,12 @@ if __name__ == '__main__':
     # ── Test 1: CSV parser ────────────────────────────────────────────────
     # Create a minimal test CSV
     test_csv = (
-        "I.6.2a,1,f,exp(-theta**2/2)/sqrt(2*pi),"
-        "1,theta,1,3\n"
-        "I.12.1,2,F,mu*Nn,"
-        "1,mu,1,5,2,Nn,1,5\n"
+        "Filename,Number,Output,Formula,# variables,"
+        "v1_name,v1_low,v1_high,v2_name,v2_low,v2_high\n"
+        "I.6.2a,1,f,exp(-theta**2/2)/sqrt(2*pi),1,"
+        "theta,1,3\n"
+        "I.12.1,2,F,mu*Nn,2,"
+        "mu,1,5,Nn,1,5\n"
     )
 
     with tempfile.NamedTemporaryFile(
