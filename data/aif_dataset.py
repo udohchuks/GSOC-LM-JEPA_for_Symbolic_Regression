@@ -292,10 +292,13 @@ def preprocess_equation(
     )
     # Truncate or pad to MAX_SEQ_LEN
     while len(padded) < MAX_SEQ_LEN:
-        padded.append([0] * 5)
+        padded.append([0]*5)
     padded = padded[:MAX_SEQ_LEN]
 
     unit_targets_idx = unit_targets_to_class_indices(padded) # shape: [MAX_SEQ_LEN, 5]
+
+    pad_mask = (token_ids == PAD_IDX)
+    unit_targets_idx[pad_mask] = -100
 
     return PreprocessedEquation(
         eq_id=meta.eq_id,

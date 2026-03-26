@@ -3,3 +3,4 @@ numpy>=1.24.0
 sympy>=1.12
 scipy>=1.10.0
 pytorch-lightning>=2.0.0
+lejepa @ git+https://github.com/galilai-group/lejepa.git

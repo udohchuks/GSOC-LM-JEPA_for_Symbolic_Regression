@@ -63,7 +63,7 @@ PAD_IDX = TOKEN2IDX[PAD_TOKEN]
 EOS_IDX = TOKEN2IDX[EOS_TOKEN]
 BOS_IDX = TOKEN2IDX[BOS_TOKEN]
 UNK_IDX = TOKEN2IDX[UNK_TOKEN]
-MAX_SEQ_LEN = 40
+MAX_SEQ_LEN = 45
 
 
 # ── Operator arity ────────────────────────────────────────────────────────────

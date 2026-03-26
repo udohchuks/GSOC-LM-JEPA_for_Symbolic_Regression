@@ -620,6 +620,11 @@ def generate_one_equation(
         if len(rpn_tokens) == 0 or len(rpn_tokens) > MAX_SEQ_LEN - 2:
             continue
         
+        # After getting rpn_tokens, check constant count
+        n_consts = sum(1 for t in rpn_tokens if t.startswith('c'))
+        if n_consts > 5:
+            continue   # too many constants, discard this equation
+        
         # ── Generate data points ──────────────────────────────────────────
         symbols = [sym_vars[f'x{i+1}'] for i in range(n_vars)]
         ranges  = [var_pool[i][2] for i in range(n_vars)]
