@@ -1,0 +1,19 @@
+# Data and Caches
+data/feynman/
+data/Feynman_with_units/
+cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch & Lightning
+*.pt
+*.ckpt
+tb_logs/
+checkpoints/
+
+# Virtual Environment
+venv/
+.env

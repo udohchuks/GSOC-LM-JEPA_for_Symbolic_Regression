@@ -40,13 +40,14 @@ class JEPAPredictor(nn.Module):
     """
     def __init__(
         self,
-        d_model:  int,
-        n_heads:  int = 4,
-        dropout:  float = 0.1,
+        d_model:          int,
+        n_heads:          int = 4,
+        bottleneck_ratio: float = 0.5,
+        dropout:          float = 0.1,
     ):
         super().__init__()
         self.d_model = d_model
-        self.bottleneck_dim = d_model // 2
+        self.bottleneck_dim = max(1, int(d_model * bottleneck_ratio))
 
         self.z_proj = nn.Sequential(
             nn.Linear(d_model, self.bottleneck_dim),

@@ -1,6 +1,82 @@
+# LLM-JEPA Symbolic Regression - Base Configuration
+# All hyperparameters in one place.
+# Override per experiment by creating experiment-specific configs.
+
+# ── Data ──────────────────────────────────────────────────────────────────────
 data:
-  csv_path:    "data/feynman/FeynmanEquations.csv"
-  data_dir:    "data/feynman/"     
-  cache_dir:   "cache/"            # preprocessed .pt files live here
-  n_rows:      200                 # rows subsampled per equation per step
-  max_n_vars:  9
+  # AIF evaluation set
+  csv_path:    "data/FeynmanEquations.csv"
+  data_dir:    "data/Feynman_with_units/"        # raw Feynman files, no extension
+  cache_dir:   "cache/"               # preprocessed .pt files
+
+  # Synthetic pretraining corpus
+  synthetic_cache: "cache/synthetic_10k.pt"
+  n_synthetic:     10000              # Colab: 10k, Cloud: 1M+
+  n_data_points:   1000              # rows per synthetic equation
+
+  # DataLoader
+  n_rows:      200                   # rows subsampled per equation per step
+  max_n_vars:  9                     # variable padding size
+  batch_size:  32
+  num_workers: 2
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  d_model:      256                  # Colab: 128, Cloud: 512
+  n_heads:      8
+  n_isab:       2                    # ISAB blocks in MixEncoder
+  n_col_attn:   2                    # column attention layers
+  n_enc_layers: 4                    # TargetEncoder transformer layers
+  n_dec_layers: 4                    # RPNDecoder transformer layers
+  m_inducing:   32                   # inducing points per ISAB
+  max_n_vars:   9
+  dropout:      0.1
+
+  # ── Predictor (JEPA bottleneck) ───────────────────────────────────────────
+  # Kept deliberately small to avoid "lazy encoder" problem.
+  # bottleneck_dim = d_model * pred_bottleneck_ratio  (rounded to int)
+  predictor:
+    pred_n_heads:          4         # attention heads in predictor cross-attn
+    pred_bottleneck_ratio: 0.5       # bottleneck_dim = d_model * ratio
+    pred_dropout:          0.1       # dropout in predictor cross-attention
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  lambda_jepa:   1.0                 # JEPA MSE weight
+  lambda_sigreg: 1.0                 # SIGReg weight (robust to change)
+  lambda_lm:     1.0                 # LM cross-entropy weight
+  lambda_units:  1.0                 # unit prediction weight
+  alpha_lm:      2.0                 # penalty for invalid RPN tokens
+  num_slices:    512                  # SIGReg slicing projections
+  num_points:    17                   # SIGReg Epps-Pulley test points
+
+# ── Training ──────────────────────────────────────────────────────────────────
+training:
+  lr:            3e-4
+  weight_decay:  1e-2
+  max_epochs:    30                  # Colab: 30, Cloud: 100+
+  warmup_steps:  500
+  use_synthetic: false               # true = pretrain on synthetic data
+  gradient_clip: 1.0                 # gradient clipping value
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  log_every_n_steps: 10
+  # Set to "wandb" for Weights & Biases, "tensorboard" for TensorBoard
+  logger:  "tensorboard"
+  run_name: "llmjepa_sr_base"
+
+# ── Checkpointing ─────────────────────────────────────────────────────────────
+checkpoint:
+  dirpath:       "checkpoints/"
+  monitor:       "val/total"
+  mode:          "min"
+  save_top_k:    3
+  filename:      "jepa-{epoch:02d}-{val/total:.4f}"
+
+# ── Hardware ──────────────────────────────────────────────────────────────────
+hardware:
+  accelerator:  "gpu"               # "cpu" for testing
+  devices:      1                   # 1 for Colab, 8 for Cloud
+  strategy:     "auto"              # "ddp" for multi-GPU
+  precision:    "16-mixed"          # mixed precision for speed

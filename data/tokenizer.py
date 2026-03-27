@@ -43,8 +43,9 @@ UNARY_TOKENS = [
     'sin',      'cos',
     'tan',      'arcsin', 
     'arccos',   'arctan',
-    'inv',      'abs',
-    'neg',
+    'cosh',     'tanh',
+    'sinh',     'inv',
+    'abs',      'neg',
 ]
 
 # ── Full vocabulary in fixed order ────────────────────────────────────────────
@@ -63,7 +64,7 @@ PAD_IDX = TOKEN2IDX[PAD_TOKEN]
 EOS_IDX = TOKEN2IDX[EOS_TOKEN]
 BOS_IDX = TOKEN2IDX[BOS_TOKEN]
 UNK_IDX = TOKEN2IDX[UNK_TOKEN]
-MAX_SEQ_LEN = 45
+MAX_SEQ_LEN = 50
 
 
 # ── Operator arity ────────────────────────────────────────────────────────────
@@ -324,6 +325,12 @@ def _traverse(expr, var_map, tokens, const_counter):
         'asin':  'arcsin',
         'acos':  'arccos',
         'atan':  'arctan',
+        'arcsin':'arcsin',
+        'arccos':'arccos',
+        'arctan':'arctan',
+        'cosh':  'cosh',
+        'tanh':  'tanh',
+        'sinh':  'sinh',
         'Abs':   'abs',
     }
     func_name = type(expr).__name__
@@ -364,6 +371,9 @@ def rpn_to_sympy(tokens: List[str]) -> sympy.Expr:
         'arcsin': sympy.asin,
         'arccos': sympy.acos,
         'arctan': sympy.atan,
+        'cosh':   sympy.cosh,
+        'tanh':   sympy.tanh,
+        'sinh':   sympy.sinh,
         'inv':    lambda x: 1/x,
         'abs':    sympy.Abs,
         'neg':    lambda x: -x,

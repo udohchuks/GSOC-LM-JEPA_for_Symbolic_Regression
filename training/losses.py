@@ -6,6 +6,12 @@ grounded regularization term that enforces isotropic Gaussian
 embeddings. Both encoders are trainable — gradients flow through
 both context and target encoders.
 
+context encoder:   trains on MSE + SIGReg(z_context) + L_lm + L_units
+formula encoder:   trains on SIGReg(z_target) only
+predictor:         cross-attention, z_context queries var_summaries → z_hat
+MSE loss:          MSE(z_hat, z_target.detach())
+SIGReg:            sigreg_fn(z_context) + sigreg_fn(z_target)
+
 Components:
 1. SIGRegLoss:      LeJEPA's Sketched Isotropic Gaussian Regularization
 2. JEPALoss:        MSE between predicted and target representations
@@ -154,31 +160,39 @@ class ValidityWeightedCE(nn.Module):
         super().__init__()
         self.invalid_weight = invalid_weight
         self.ignore_index = ignore_index
+        self.eos_idx = EOS_IDX
+        self.max_len = MAX_SEQ_LEN
         
         # Pre-compute arity map for vectorization
-        self.arity_map = torch.zeros(VOCAB_SIZE, dtype=torch.long)
+        arity_map = torch.zeros(VOCAB_SIZE, dtype=torch.long)
         for idx, tok in IDX2TOKEN.items():
             if tok in (PAD_TOKEN, BOS_TOKEN, EOS_TOKEN, UNK_TOKEN):
-                self.arity_map[idx] = 0
                 continue
             
             arity = ARITY.get(tok, 0)
             if arity == 2:
-                self.arity_map[idx] = -1 
+                arity_map[idx] = -1 
             elif arity == 0:
-                self.arity_map[idx] = 1  
-            
-            
+                arity_map[idx] = 1
+        
+        self.register_buffer('arity_map', arity_map)
+
+        # Full arity map (2, 1, or 0) for validity check
+        full_arity_map = torch.zeros(VOCAB_SIZE, dtype=torch.long)
+        for idx, tok in IDX2TOKEN.items():
+            full_arity_map[idx] = ARITY.get(tok, 0)
+        self.register_buffer('full_arity_map', full_arity_map)
+
     def _get_batch_depths(self, token_ids: torch.Tensor) -> torch.Tensor:
         """
         Computes stack depths for the entire batch at once.
         O(T) instead of O(B*T) loops.
         """
         # Map tokens to their stack delta (-1, 0, or 1)
-        # We use .to(device) to ensure the arity map is where the data is
-        deltas = self.arity_map.to(token_ids.device)[token_ids]
+        deltas = self.arity_map[token_ids]  # [B, T]
         
         # Shift deltas by 1 so we get the depth BEFORE the token is applied
+        # targets[t] validity depends on the stack state AFTER token_ids[:t]
         # [B, T] -> [B, T] where first col is 0
         shifted_deltas = torch.cat([
             torch.zeros((token_ids.size(0), 1), device=token_ids.device, dtype=torch.long),
@@ -186,7 +200,7 @@ class ValidityWeightedCE(nn.Module):
         ], dim=1)
         
         # Cumulative sum gives the depth at each step
-        depths = torch.cumsum(shifted_deltas, dim=1)
+        depths = torch.cumsum(shifted_deltas, dim=1)  # [B, T]
         return torch.clamp(depths, min=0)
 
     def forward(
@@ -195,8 +209,16 @@ class ValidityWeightedCE(nn.Module):
         targets: torch.Tensor,
         token_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        """
+        Args:
+            logits:    [B, T, V] prediction scores
+            targets:   [B, T] ground truth token indices
+            token_ids: [B, T] input tokens (includes BOS). 
+                       If None, targets is used as the context.
+        """
         B, T, V = logits.shape
         input_ids = token_ids if token_ids is not None else targets
+        device = logits.device
         
         # 1. Compute Base Loss
         ce_loss = F.cross_entropy(
@@ -204,32 +226,41 @@ class ValidityWeightedCE(nn.Module):
             targets.reshape(-1),
             ignore_index=self.ignore_index,
             reduction='none'
-        ).reshape(B, T)
+        ).reshape(B, T)  # [B, T]
         
-        # 2. Get depths (Fast Vectorized Way) shape -> (B, T)
-        depths = self._get_batch_depths(input_ids)
+        # 2. Get depths (Fast Vectorized Way)
+        depths = self._get_batch_depths(input_ids)  # [B, T]
         
-        # 3. Apply Validity Weights
-        # Note: get_valid_next_tokens still uses Python logic, but we 
-        # only call it for the actual target token to check its validity.
+        # 3. Apply Validity Weights (Fully Vectorized)
+        arities = self.full_arity_map[targets]  # [B, T]
+        is_eos = (targets == self.eos_idx)      # [B, T] mask
+        is_pad = (targets == self.ignore_index) # [B, T] mask
+        
+        # Sequence position for max_len check
+        t_indices = torch.arange(T, device=device).unsqueeze(0).expand(B, T) # [B, T]
+        
+        # Parallel Validity Check:
+        # Instead of 'if targets[b,t] == EOS...', we evaluate all conditions
+        # across the entire [B, T] grid in one GPU kernel call.
+        
+        # - EOS is valid ONLY if stack depth is exactly 1 (complete expression)
+        valid_eos = is_eos & (depths == 1)
+        
+        # - Non-EOS tokens are valid IF:
+        #   a) We haven't hit the hard max length limit
+        #   b) The current stack depth can satisfy the operator's arity
+        valid_non_eos = (~is_eos) & (t_indices < self.max_len - 1) & (
+            (arities == 0) |                   # Leaf: always valid if not full
+            ((arities == 1) & (depths >= 1)) | # Unary: needs 1 operand
+            ((arities == 2) & (depths >= 2))   # Binary: needs 2 operands
+        )
+        
+        is_valid = valid_eos | valid_non_eos  # [B, T] boolean mask
+        
+        # 4. Final Loss Calculation
         weights = torch.ones_like(ce_loss)
-        
-        # We still need a loop to check the validity of the specific target,
-        # but the heavy lifting of calculating depths is now offloaded to the GPU.
-        for b in range(B):
-            for t in range(T):
-                target_idx = targets[b, t].item()
-                if target_idx == self.ignore_index:
-                    continue
-                
-                valid_idxs = get_valid_next_tokens(
-                    stack_depth=depths[b, t].item(),
-                    seq_len=t,
-                    max_len=MAX_SEQ_LEN
-                )
-                
-                if target_idx not in valid_idxs:
-                    weights[b, t] = self.invalid_weight
+        # Penalize tokens that violate RPN grammar
+        weights[~is_valid & ~is_pad] = self.invalid_weight
         
         weighted_loss = ce_loss * weights
         mask = (targets != self.ignore_index).float()
@@ -311,13 +342,11 @@ class LLMJEPALoss(nn.Module):
         Returns:
             dict with 'total' loss and individual components for logging
         """
-        # 1. JEPA prediction loss (both encoders trainable for SIGReg)
+        # 1. JEPA prediction loss (target detached)
         L_jepa = self.jepa_loss(z_pred, z_target)
         
-        # 2. SIGReg loss on concatenated representations
-        # Concatenate along batch dimension: [2*B, d_model]
-        z_combined = torch.cat([z_context, z_target], dim=0)
-        L_sigreg = self.sigreg_loss(z_combined)
+        # 2. SIGReg loss applied independently to context and target
+        L_sigreg = self.sigreg_loss(z_context) + self.sigreg_loss(z_target)
         
         # 3. LM loss with validity weighting (uses get_valid_next_tokens)
         L_lm = self.lm_loss(logits, token_targets, token_ids)
