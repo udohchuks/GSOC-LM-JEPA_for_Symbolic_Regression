@@ -301,7 +301,7 @@ class PhysicsTreeBuilder:
 
         if left is None or right is None:
             return self._leaf(var_pool)
-        
+
         # Try binary operators in random order
         ops = random.sample(BINARY_TOKENS, len(BINARY_TOKENS))
         for op in ops:
@@ -324,12 +324,12 @@ class PhysicsTreeBuilder:
         # Applying sin/cos/exp to a pure constant just gives another constant
         TRANSCENDENTAL = {'sin', 'cos', 'tan', 'exp', 'log',
                       'arcsin', 'arccos', 'arctan'}
-        
+
         def has_variable(node: TreeNode) -> bool:
             if node.token.startswith('x'):
                 return True
             return any(has_variable(c) for c in node.children)
-        
+
         child_has_var = has_variable(child)
 
         # Try unary operators in random order
@@ -346,19 +346,20 @@ class PhysicsTreeBuilder:
                 node = TreeNode(token=op, units=out_units)
                 node.children = [child]
                 return node
-        
+
+        # No valid unary operator — return child as-is
         return child
     
     def _leaf(self, var_pool: List) -> TreeNode:
         """Sample a leaf node: 80% variable, 20% dimensionless constant."""
         if random.random() < 0.8:
-            # Sample a variable from the pool
-            entry    = random.choice(var_pool)
+            # Sample a variable from the pool by index to avoid collapsing
+            # duplicate entries (list.index() always returns the FIRST match)
+            idx       = random.randrange(len(var_pool))
+            entry     = var_pool[idx]
             unit_name = entry[0]
-            units    = get_unit_vector(unit_name, warn_unknown=False)
-            # Map to x1...xN token based on position in pool
-            idx = var_pool.index(entry)
-            tok = f'x{idx + 1}'
+            units     = get_unit_vector(unit_name, warn_unknown=False)
+            tok       = f'x{idx + 1}'
             return TreeNode(token=tok, units=units[:])
         else:
             # Dimensionless constant
@@ -794,7 +795,7 @@ def build_synthetic_dataloader(
         print(f"Loaded {len(equations)} equations")
     else:
         print(f"Generating {n_equations} synthetic equations...")
-        equations = _generate_corpus(n_equations, n_data_points)
+        equations = _generate_corpus(n_equations, n_data_points, num_workers=num_workers)
         if cache_path:
             Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
             torch.save(equations, cache_path)
@@ -811,34 +812,66 @@ def build_synthetic_dataloader(
         persistent_workers=(num_workers > 0),
     )
 
+def _worker_fn(n_data_points, _):
+    """Worker function for parallel synthetic data generation."""
+    # Local builder instance per worker for thread-safety (random state)
+    local_builder = PhysicsTreeBuilder(max_depth=6)
+    return generate_one_equation(local_builder, n_data_points=n_data_points)
+
 def _generate_corpus(
     n_equations:   int,
     n_data_points: int = 1000,
     verbose:       bool = True,
+    num_workers:   int = None,
 ) -> List[SyntheticEquation]:
     """
     Generate a corpus of physics-informed synthetic equations.
-    Simple loop — parallelise with multiprocessing for large corpora.
+    Parallelised across CPU cores using multiprocessing.
     """
-    builder    = PhysicsTreeBuilder(max_depth=6)
-    equations  = []
+    import multiprocessing as mp
+    from functools import partial
+
+    if num_workers is None or num_workers <= 0:
+        num_workers = mp.cpu_count()
+
+    builder = PhysicsTreeBuilder(max_depth=6)
+    equations = []
     n_attempted = 0
+    
+    if verbose:
+        print(f"Generating {n_equations} equations using {num_workers} workers...")
 
-    while len(equations) < n_equations:
-        n_attempted += 1
-        eq = generate_one_equation(builder, n_data_points=n_data_points)
-        if eq is not None:
-            equations.append(eq)
+    # Worker function with fixed n_data_points
+    worker_with_args = partial(_worker_fn, n_data_points)
 
-        if verbose and len(equations) % 100 == 0 and len(equations) > 0:
-            rate = len(equations) / n_attempted * 100
-            print(f"  {len(equations)}/{n_equations} | "
-                  f"attempts: {n_attempted} | "
-                  f"yield: {rate:.1f}%")
+    with mp.Pool(num_workers) as pool:
+        # We use imap_unordered for better efficiency
+        results = pool.imap_unordered(worker_with_args, range(n_equations * 10)) # overkill range
+        
+        try:
+            from tqdm import tqdm
+            pbar = tqdm(total=n_equations, disable=not verbose, desc="Generating equations")
+        except ImportError:
+            pbar = None
+
+        for eq in results:
+            n_attempted += 1
+            if eq is not None:
+                equations.append(eq)
+                if pbar:
+                    pbar.update(1)
+                elif verbose and len(equations) % 100 == 0:
+                    rate = len(equations) / n_attempted * 100
+                    print(f"  {len(equations)}/{n_equations} | attempts: {n_attempted} | yield: {rate:.1f}%")
+            
+            if len(equations) >= n_equations:
+                break
+        
+        if pbar:
+            pbar.close()
 
     if verbose:
-        print(f"Done: {len(equations)} equations "
-              f"from {n_attempted} attempts "
+        print(f"Done: {len(equations)} equations from {n_attempted} attempts "
               f"({len(equations)/n_attempted*100:.1f}% yield)")
     return equations
 

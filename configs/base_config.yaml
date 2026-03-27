@@ -11,13 +11,13 @@ data:
 
   # Synthetic pretraining corpus
   synthetic_cache: "cache/synthetic_10k.pt"
-  n_synthetic:     10000              # Colab: 10k, Cloud: 1M+
-  n_data_points:   1000              # rows per synthetic equation
+  n_synthetic:     1000000              # Colab: 10k, Cloud: 1M+
+  n_data_points:   2000              # rows per synthetic equation
 
   # DataLoader
-  n_rows:      200                   # rows subsampled per equation per step
+  n_rows:      400                   # rows subsampled per equation per step
   max_n_vars:  9                     # variable padding size
-  batch_size:  32
+  batch_size:  128
   num_workers: 2
 
 # ── Model ─────────────────────────────────────────────────────────────────────
@@ -54,9 +54,9 @@ loss:
 training:
   lr:            3e-4
   weight_decay:  1e-2
-  max_epochs:    30                  # Colab: 30, Cloud: 100+
-  warmup_steps:  500
-  use_synthetic: false               # true = pretrain on synthetic data
+  max_epochs:    2                  # Colab: 30, Cloud: 100+
+  warmup_steps:  2000
+  use_synthetic: true               # true = pretrain on synthetic data
   gradient_clip: 1.0                 # gradient clipping value
 
 # ── Logging ───────────────────────────────────────────────────────────────────
