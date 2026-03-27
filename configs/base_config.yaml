@@ -38,16 +38,16 @@ model:
   predictor:
     pred_n_heads:          4         # attention heads in predictor cross-attn
     pred_bottleneck_ratio: 0.5       # bottleneck_dim = d_model * ratio
-    pred_dropout:          0.1       # dropout in predictor cross-attention
+    pred_dropout:          0.2       # dropout in predictor cross-attention
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
 loss:
   lambda_jepa:   1.0                 # JEPA MSE weight
-  lambda_sigreg: 1.0                 # SIGReg weight (robust to change)
+  lambda_sigreg: 0.1                 # SIGReg weight (robust to change)
   lambda_lm:     1.0                 # LM cross-entropy weight
   lambda_units:  1.0                 # unit prediction weight
   alpha_lm:      2.0                 # penalty for invalid RPN tokens
-  num_slices:    512                  # SIGReg slicing projections
+  num_slices:    1024                  # SIGReg slicing projections
   num_points:    17                   # SIGReg Epps-Pulley test points
 
 # ── Training ──────────────────────────────────────────────────────────────────

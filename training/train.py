@@ -66,55 +66,53 @@ def main():
     LR           = float(cfg_train['lr'])
     WEIGHT_DECAY = float(cfg_train.get('weight_decay', 1e-2))
     WARMUP_STEPS = cfg_train.get('warmup_steps', 500)
-    USE_SYNTHETIC = cfg_train.get('use_synthetic', False)
     GRADIENT_CLIP = cfg_train.get('gradient_clip', 1.0)
     N_SYNTHETIC  = cfg_data.get('n_synthetic', 10000)
 
     # ── 2. Data Loaders ──────────────────────────────────────────────────────
-    if USE_SYNTHETIC:
-        # For pretraining
-        full_loader = build_synthetic_dataloader(
-            n_equations=N_SYNTHETIC,  
-            batch_size=BATCH_SIZE,
-            cache_path=cfg_data.get('synthetic_cache', 'cache/synthetic_10k.pt'),
-            n_data_points=cfg_data.get('n_data_points', 1000),
-            max_n_vars=MAX_N_VARS,
-            num_workers=NUM_WORKERS,
-        )
-    else:
-        # For evaluation/fine-tuning
-        full_loader = build_aif_dataloader(
-            csv_path=cfg_data['csv_path'],
-            data_dir=cfg_data['data_dir'],
-            batch_size=BATCH_SIZE,
-            cache_dir=cfg_data.get('cache_dir'),
-            num_workers=NUM_WORKERS,
-        )
-
-    # Automatically split 10% for validation
-    full_dataset = full_loader.dataset
-    val_size = max(1, int(0.1 * len(full_dataset)))
-    train_size = len(full_dataset) - val_size
-    
-    train_dataset, val_dataset = random_split(
-        full_dataset, 
-        [train_size, val_size], 
-        generator=torch.Generator().manual_seed(42) # Ensure reproducible splits
+    # Training & Validation: always use synthetic dataset (pre-split 90/10)
+    full_synthetic_loader = build_synthetic_dataloader(
+        n_equations=N_SYNTHETIC,
+        batch_size=BATCH_SIZE,
+        cache_path=cfg_data.get('synthetic_cache', 'cache/synthetic_10k.pt'),
+        n_data_points=cfg_data.get('n_data_points', 1000),
+        max_n_vars=MAX_N_VARS,
+        num_workers=NUM_WORKERS,
     )
-    
+
+    # Split synthetic into 90% train / 10% val
+    full_dataset = full_synthetic_loader.dataset
+    val_size     = max(1, int(0.1 * len(full_dataset)))
+    train_size   = len(full_dataset) - val_size
+
+    train_dataset, val_dataset = random_split(
+        full_dataset,
+        [train_size, val_size],
+        generator=torch.Generator().manual_seed(42),  # reproducible split
+    )
+
     train_loader = DataLoader(
-        train_dataset, 
-        batch_size=BATCH_SIZE, 
-        shuffle=True, 
-        collate_fn=full_loader.collate_fn,
-        num_workers=full_loader.num_workers
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        collate_fn=full_synthetic_loader.collate_fn,
+        num_workers=full_synthetic_loader.num_workers,
     )
     val_loader = DataLoader(
-        val_dataset, 
-        batch_size=BATCH_SIZE, 
-        shuffle=False, 
-        collate_fn=full_loader.collate_fn,
-        num_workers=full_loader.num_workers
+        val_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        collate_fn=full_synthetic_loader.collate_fn,
+        num_workers=full_synthetic_loader.num_workers,
+    )
+
+    # Test: always use the AIF (Feynman) dataset
+    test_loader = build_aif_dataloader(
+        csv_path=cfg_data['csv_path'],
+        data_dir=cfg_data['data_dir'],
+        batch_size=BATCH_SIZE,
+        cache_dir=cfg_data.get('cache_dir'),
+        num_workers=NUM_WORKERS,
     )
 
     # ── 3. Model ─────────────────────────────────────────────────────────────
@@ -184,13 +182,17 @@ def main():
         enable_model_summary=True,
     )
 
-     # ── 6. Train ─────────────────────────────────────────────────────────────
+    # ── 6. Train ─────────────────────────────────────────────────────────────
     print(f"Starting training. Logs at: {logger.log_dir}")
     print("SIGReg mode: Both encoders trainable, NO EMA updates")
     trainer.fit(model, train_loader, val_loader)
-    
+
     print("Training complete. Best checkpoint saved.")
-    print("View logs with: tensorboard --logdir tb_logs")
+
+    # ── 7. Test on AIF dataset ────────────────────────────────────────────────
+    print("Running test evaluation on AIF (Feynman) dataset ...")
+    trainer.test(model, dataloaders=test_loader, ckpt_path="best")
+    print("Test complete. View logs with: tensorboard --logdir tb_logs")
 
 
 if __name__ == '__main__':

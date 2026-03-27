@@ -170,16 +170,34 @@ class LLMJEPAModule(pl.LightningModule):
         return loss
     def validation_step(self, batch: Dict, batch_idx: int) -> Dict:
         """Single validation step."""
+        self.model.eval()
         with torch.no_grad():
             outputs = self.forward(batch)
             loss = outputs['loss']
             losses = outputs['losses']
-        
+
         # Log validation losses
         self.log('val/total', loss, on_epoch=True, prog_bar=True)
         self.log('val/jepa', losses['jepa'], on_epoch=True)
         self.log('val/lm', losses['lm'], on_epoch=True)
-        
+
+        return outputs
+
+    def test_step(self, batch: Dict, batch_idx: int) -> Dict:
+        """Single test step — run on the AIF (Feynman) dataset after training."""
+        self.model.eval()
+        with torch.no_grad():
+            outputs = self.forward(batch)
+            loss = outputs['loss']
+            losses = outputs['losses']
+
+        # Log test losses (all components for thorough reporting)
+        self.log('test/total',  loss,             on_epoch=True, prog_bar=True)
+        self.log('test/jepa',   losses['jepa'],   on_epoch=True)
+        self.log('test/sigreg', losses['sigreg'], on_epoch=True)
+        self.log('test/lm',     losses['lm'],     on_epoch=True)
+        self.log('test/units',  losses['units'],  on_epoch=True)
+
         return outputs
 
 

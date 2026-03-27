@@ -11,9 +11,15 @@ A Joint Embedding Predictive Architecture (JEPA) for Symbolic Regression. Parses
 
 ---
 
-## Quick Start
+## Documentation
 
-### 1. Install
+| Document | Description |
+|---|---|
+| [Overview](docs/overview.md) | High-level: motivation, architecture diagram, design decisions, usage |
+| [Technical Reference](docs/technical_reference.md) | Detailed: every module, class, design rationale, and implementation decisions |
+
+---
+
 
 ```bash
 git clone https://github.com/your-username/GSOC-LM-JEPA_for_Symbolic_Regression.git
@@ -30,21 +36,6 @@ python -c "import tarfile; tar = tarfile.open('Feynman_with_units.tar.gz'); tar.
 ```
 
 > The `data/Feynman_with_units/` directory should contain ~100 data files (e.g. `I.6.2a`, `I.12.1`, etc.)
-
-### 3. Verify Data Loading
-
-```bash
-python run_test_load.py
-```
-
-Expected output:
-```
-Parsing AIF equations from data/FeynmanEquations.csv
-Found 100 equations
-...
-Preprocessed 99/100 equations (1 failed)
-Loaded 99 equations
-```
 
 ---
 
@@ -65,7 +56,7 @@ python -m training.train --config configs/base_config.yaml
 | `model.d_model` | 256 | Hidden dimension |
 | `model.n_enc_layers` | 4 | Encoder transformer layers |
 | `model.n_dec_layers` | 4 | Decoder transformer layers |
-| `training.use_synthetic` | false | Use synthetic pretraining data |
+| `training.use_synthetic` | True | Use synthetic pretraining data |
 | `hardware.accelerator` | gpu | `gpu` or `cpu` |
 
 **Training outputs:**
@@ -154,33 +145,41 @@ python -m unittest discover tests
 
 ```
 ├── configs/
-│   └── base_config.yaml       # All hyperparameters
+│   ├── base_config.yaml       # All hyperparameters
+│   └── smoke_test.yaml        # Fast local validation (1 epoch, CPU)
 ├── data/
 │   ├── FeynmanEquations.csv   # Equation metadata
 │   ├── Feynman_with_units/    # Raw data files (100 equations)
 │   ├── aif_dataset.py         # AIF dataset loader
 │   ├── synthetic_dataset.py   # Synthetic pretraining data
-│   ├── tokenizer.py           # RPN tokenizer (~38 tokens)
+│   ├── tokenizer.py           # RPN tokenizer (44 tokens)
 │   ├── unit_table.py          # Physical unit lookup
 │   └── utils.py               # IEEE-754 encoding, unit targets
+├── docs/
+│   ├── overview.md            # High-level architecture and design decisions
+│   └── technical_reference.md # Detailed module-by-module reference
 ├── models/
 │   ├── model.py               # LLMJEPA unified model
 │   ├── encoder.py             # MixEncoder (ISAB + column attention)
 │   ├── decoder.py             # RPNDecoder (causal transformer)
 │   ├── embedders.py           # Data + Unit embedders
-│   └── predictor.py           # JEPA predictor (bottleneck)
+│   ├── target_encoder.py      # Formula → z_target (training only)
+│   └── predictor.py           # JEPA predictor (bottleneck cross-attention)
 ├── training/
 │   ├── train.py               # Training entry point
 │   ├── trainer.py             # Lightning module
 │   └── losses.py              # JEPA + SIGReg + LM + Unit losses
 ├── inference/
-│   └── generate.py            # Autoregressive generation
+│   └── generate.py            # Autoregressive generation with validity masking
 ├── evaluation/
-│   ├── evaluate.py            # Full evaluation suite
-│   └── metrics.py             # Metric functions (R², BFGS, etc.)
+│   ├── evaluate.py            # Full evaluation suite (noise, OOD, BFGS)
+│   └── metrics.py             # Metric functions (R², Acc_τ, node count)
+├── tests/
+│   ├── test_data.py           # Tokenizer + synthetic dataset tests
+│   ├── test_model.py          # Model forward pass test
+│   └── test_pipeline.py       # End-to-end training step test
 ├── predict.py                 # CLI inference
 ├── run_eval.py                # CLI evaluation
-├── run_test_load.py           # Data loading smoke test
 └── requirements.txt
 ```
 
