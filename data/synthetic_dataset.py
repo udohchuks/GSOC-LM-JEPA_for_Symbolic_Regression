@@ -857,14 +857,24 @@ class LazySyntheticDataset(Dataset):
                 first_key = next(iter(self.chunk_cache))
                 del self.chunk_cache[first_key]
                 
-            # print(f"Loading cache chunk {file_idx}...")
-            equations = torch.load(self.part_files[file_idx], weights_only=False)
-            # Reuse the formatting logic from SyntheticDataset
-            self.chunk_cache[file_idx] = SyntheticDataset(
-                equations, 
-                max_n_vars=self.max_n_vars,
-                n_rows=self.n_rows
-            )
+            # ── Retry logic for robust loading (handles transient EOFErrors) ──
+            max_retries = 3
+            import time
+            for attempt in range(max_retries):
+                try:
+                    equations = torch.load(self.part_files[file_idx], weights_only=False)
+                    # Reuse the formatting logic from SyntheticDataset
+                    self.chunk_cache[file_idx] = SyntheticDataset(
+                        equations, 
+                        max_n_vars=self.max_n_vars,
+                        n_rows=self.n_rows
+                    )
+                    break
+                except (EOFError, RuntimeError) as e:
+                    if attempt == max_retries - 1:
+                        print(f"  Error: Failed to load {self.part_files[file_idx]} after {max_retries} attempts: {e}")
+                        raise e
+                    time.sleep(1.0) # wait for FS sync
             
         return self.chunk_cache[file_idx][inner_idx]
 
@@ -957,11 +967,10 @@ def _generate_corpus(
                 # Atomic Incremental Save
                 if cache_dir and len(equations) >= chunk_size:
                     part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
-                    # Atomic write: save to tmp and rename
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix='.pt') as tmp:
-                        torch.save(equations, tmp.name)
-                    Path(tmp.name).replace(part_path)
+                    tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
+                    # Atomic write: save to .tmp and rename
+                    torch.save(equations, str(tmp_path))
+                    tmp_path.replace(part_path)
                     
                     equations = [] # Clear RAM!
                     chunk_count += 1
@@ -972,10 +981,9 @@ def _generate_corpus(
         # Save remainder
         if cache_dir and equations:
             part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
-            import tempfile
-            with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix='.pt') as tmp:
-                torch.save(equations, tmp.name)
-            Path(tmp.name).replace(part_path)
+            tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
+            torch.save(equations, str(tmp_path))
+            tmp_path.replace(part_path)
         
         if pbar:
             pbar.close()
