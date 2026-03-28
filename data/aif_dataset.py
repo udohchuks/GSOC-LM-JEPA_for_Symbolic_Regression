@@ -353,13 +353,13 @@ class AIFDataset(Dataset):
         else:
             X_bits   = eq.X_bits
         
-        # ── UNPACK BITS (Compact uint16 format) ─────────────────────────
+        # ── UNPACK BITS (Compact uint16 format) ──────────────────────────
         # Each uint16 maps to 16 bits. This reduces RAM usage by 8x.
         nr, nv = X_bits.shape
         X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
         X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big')
         X_bits = X_bits.reshape(nr, nv, 16)
-        # Result is now consistently [n_rows, n_vars, 16]
+        # Result is [n_rows, n_vars, 16]
         
         # ── Pad variable dimension to max_n_vars ──────────────────────────
         # Why pad? Tensors in a batch must have identical shapes.
