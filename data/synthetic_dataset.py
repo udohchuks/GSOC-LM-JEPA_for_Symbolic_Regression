@@ -836,7 +836,7 @@ def _generate_corpus(
     verbose:       bool = True,
     num_workers:   int = None,
     cache_dir:     str  = None,
-    chunk_size:    int  = 25000,
+    chunk_size:    int  = 20000,
 ) -> Optional[List[SyntheticEquation]]:
     """
     Generate a corpus of physics-informed synthetic equations.
@@ -979,7 +979,7 @@ def build_synthetic_dataloader(
         else:
             # Large scale: save to chunks directly
             _generate_corpus(n_equations, n_data_points, num_workers=num_workers, 
-                             cache_dir=cache_path, chunk_size=25000)
+                             cache_dir=cache_path, chunk_size=20000)
             dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
 
     return DataLoader(
