@@ -170,10 +170,11 @@ def main():
     
     checkpoint_callback = ModelCheckpoint(
         dirpath=cfg_ckpt.get('dirpath', 'checkpoints/'),
-        filename=cfg_ckpt.get('filename', 'jepa-{epoch:02d}-{val/total:.2f}'),
+        filename=cfg_ckpt.get('filename', 'jepa-{step:06d}-{val/total:.4f}'),
         monitor=cfg_ckpt.get('monitor', 'val/total'),
         mode=cfg_ckpt.get('mode', 'min'),
         save_top_k=cfg_ckpt.get('save_top_k', 3),
+        every_n_train_steps=cfg_ckpt.get('save_every_n_steps', 500),
         save_last=True,
     )
     

@@ -77,7 +77,8 @@ checkpoint:
   monitor: "val/total"
   mode: "min"
   save_last: true
-  filename:      "jepa-{epoch:02d}-{val/total:.4f}"
+  save_every_n_steps: 100           # Force checkpoint every 100 steps
+  filename:      "jepa-{step:06d}-{val/total:.4f}"
 
 # ── Hardware ──────────────────────────────────────────────────────────────────
 hardware:
