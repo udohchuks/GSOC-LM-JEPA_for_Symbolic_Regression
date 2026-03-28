@@ -18,7 +18,7 @@ data:
   n_rows:      200                   # rows subsampled per equation per step
   max_n_vars:  9                     # variable padding size
   batch_size:  128
-  num_workers: 16                  # Increased for faster bit-unpacking
+  num_workers: 8                   # Reduced from 16 for RAM stability (Safe-Mode)
   chunk_size:  1000
   max_cache_size: 32                    # prevent cache thrashing during shuffle
 

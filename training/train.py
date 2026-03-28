@@ -112,7 +112,7 @@ def main():
         batch_size=BATCH_SIZE,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=NUM_WORKERS,
+        num_workers=2, # Validation doesn't need high parallelism
         pin_memory=True,
         persistent_workers=(NUM_WORKERS > 0)
     )
