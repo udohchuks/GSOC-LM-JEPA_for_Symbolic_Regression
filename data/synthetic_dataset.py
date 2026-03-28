@@ -539,7 +539,7 @@ class SyntheticEquation:
     expr_str:          str                 # SymPy canonical string
     rpn_tokens:        List[str]           # RPN token list
     token_ids:         np.ndarray          # [MAX_SEQ_LEN]
-    X_bits:            np.ndarray          # [N, n_vars, 16] IEEE-754
+    X_bits:            np.ndarray          # [N, n_vars, 16] IEEE-754 (stored as uint8 to save RAM)
     y_noisy:           np.ndarray          # [N] with noise
     unit_matrix_idx:   np.ndarray          # [n_vars, 5] class indices
     unit_targets_idx:  np.ndarray          # [MAX_SEQ_LEN, 5]
@@ -729,7 +729,8 @@ class SyntheticDataset(Dataset):
         eq     = self.equations[idx]
         n_vars = eq.n_vars
 
-        X_bits = eq.X_bits   # [N, n_vars, 16]
+        X_bits = eq.X_bits   # [N, n_vars, 16] (uint8)
+        # We cast to float32 only at the end using .float() for PyTorch
 
         # Pad variable dimension to max_n_vars
         pad_vars = self.max_n_vars - n_vars
@@ -796,9 +797,9 @@ class LazySyntheticDataset(Dataset):
             self.total_size += size
             del data # free memory
             
-        # Minimal LRU cache: store multiple chunks to avoid thrashing during shuffled access
+        # Minimal LRU cache: store multiple chunks to avoid thrashing
         self.chunk_cache = {} # {file_idx: proxy_dataset}
-        self.max_cache_size = 2 # 2 chunks ~ 1GB RAM total
+        self.max_cache_size = 2 # 2 chunks (10k each) ~ 4GB RAM total
 
     def __len__(self) -> int:
         return self.total_size
@@ -836,7 +837,7 @@ def _generate_corpus(
     verbose:       bool = True,
     num_workers:   int = None,
     cache_dir:     str  = None,
-    chunk_size:    int  = 20000,
+    chunk_size:    int  = 10000,
 ) -> Optional[List[SyntheticEquation]]:
     """
     Generate a corpus of physics-informed synthetic equations.
@@ -979,7 +980,7 @@ def build_synthetic_dataloader(
         else:
             # Large scale: save to chunks directly
             _generate_corpus(n_equations, n_data_points, num_workers=num_workers, 
-                             cache_dir=cache_path, chunk_size=20000)
+                             cache_dir=cache_path, chunk_size=10000)
             dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
 
     return DataLoader(

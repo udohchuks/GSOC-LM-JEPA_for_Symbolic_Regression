@@ -57,8 +57,9 @@ def to_ieee754_16bit(x: np.ndarray) -> np.ndarray:
     bits = np.unpackbits(x_unit8, axis=-1, bitorder='big')
 
     target_shape = x.shape + (16,)
-    # Step 5: reshape to [..., 16] and cast to float32 for PyTorch
-    return bits.reshape(target_shape).astype(np.float32)
+    # Step 5: reshape to [..., 16] and return as uint8 to save RAM
+    # Will be cast to float32 only when needed in the DataLoader
+    return bits.reshape(target_shape).astype(np.uint8)
 
 # ── 2. Gaussian noise ─────────────────────────────────────────────────────────
 
