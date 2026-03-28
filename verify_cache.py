@@ -4,11 +4,6 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 
-from data.synthetic_dataset import SyntheticEquation
-
-# Explicitly allow the custom class to be unpickled
-torch.serialization.add_safe_globals([SyntheticEquation])
-
 def verify_cache(cache_dir: str, min_file_size_kb: int = 1):
     """
     Scans the cache directory to ensure all part files are present,
@@ -46,7 +41,7 @@ def verify_cache(cache_dir: str, min_file_size_kb: int = 1):
             
         # 2. Load check
         try:
-            data = torch.load(pf, weights_only=True)
+            data = torch.load(pf, weights_only=False)
             size = len(data)
             total_equations += size
             valid_files.append(pf)

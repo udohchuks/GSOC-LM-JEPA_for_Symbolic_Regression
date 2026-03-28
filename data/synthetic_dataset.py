@@ -546,10 +546,6 @@ class SyntheticEquation:
     n_vars:            int
     epsilon:           float               # noise level used
 
-# Explicitly allow the custom class to be unpickled
-import torch
-torch.serialization.add_safe_globals([SyntheticEquation])
-
 def generate_one_equation(
     builder:        PhysicsTreeBuilder,
     n_data_points:  int = 1000,
@@ -831,7 +827,7 @@ class LazySyntheticDataset(Dataset):
         manifest_path = self.cache_dir / "metadata_manifest.pt"
         if manifest_path.exists():
             try:
-                manifest = torch.load(manifest_path, weights_only=True)
+                manifest = torch.load(manifest_path, weights_only=False)
                 # Ensure all files in manifest still exist
                 valid_files = []
                 valid_sizes = []
@@ -915,7 +911,7 @@ class LazySyntheticDataset(Dataset):
                     self.chunk_cache.pop(next(iter(self.chunk_cache)))
                 
                 # Load chunk once. If it fails (EOF/corrupt), we fall through to the except block.
-                equations = torch.load(self.part_files[file_idx], weights_only=True)
+                equations = torch.load(self.part_files[file_idx], weights_only=False)
                 self.chunk_cache[file_idx] = SyntheticDataset(
                     equations, max_n_vars=self.max_n_vars, n_rows=self.n_rows
                 )
