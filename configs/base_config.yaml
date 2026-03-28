@@ -17,19 +17,19 @@ data:
   # DataLoader
   n_rows:      200                   # rows subsampled per equation per step
   max_n_vars:  9                     # variable padding size
-  batch_size:  32
+  batch_size:  64
   num_workers: 1
   chunk_size:  1000
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
-  d_model:      256                  # Colab: 128, Cloud: 512
-  n_heads:      8
+  d_model:      128                  # Downsized for speed
+  n_heads:      4
   n_isab:       2                    # ISAB blocks in MixEncoder
   n_col_attn:   2                    # column attention layers
-  n_enc_layers: 4                    # TargetEncoder transformer layers
-  n_dec_layers: 4                    # RPNDecoder transformer layers
-  m_inducing:   32                   # inducing points per ISAB
+  n_enc_layers: 4                    # Increased to match MixEncoder capacity
+  n_dec_layers: 5                    
+  m_inducing:   32                   # Reduced from 32
   max_n_vars:   9
   dropout:      0.1
 
