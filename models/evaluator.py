@@ -84,7 +84,7 @@ class ModelEvaluator:
             csv_path=self.config['data']['csv_path'],
             data_dir=self.config['data']['data_dir'],
             batch_size=1,
-            cache_dir=self.config['data']['cache_dir'] + "aif_preprocessed.pt",
+            cache_dir=self.config['data']['cache_dir'],
         )
         
         print("Starting comprehensive evaluation...")
@@ -141,7 +141,7 @@ class ModelEvaluator:
             csv_path=self.config['data']['csv_path'],
             data_dir=self.config['data']['data_dir'],
             batch_size=1,
-            cache_dir=self.config['data']['cache_dir'] + "aif_preprocessed.pt",
+            cache_dir=self.config['data']['cache_dir'],
             shuffle=False
         )
         
