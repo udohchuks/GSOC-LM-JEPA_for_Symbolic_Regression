@@ -28,7 +28,7 @@ def main():
     n_data_points = cfg_data.get('n_data_points', 1000)
     num_workers = cfg_data.get('num_workers', 4)
     chunk_size = 10000 # Optimized chunk size
-    cache_path = cfg_data.get('synthetic_cache', 'cache/synthetic_1M.pt')
+    cache_path = cfg_data.get('synthetic_cache', 'cache/synthetic_1M')
     
     # Large scale check (consistent with build_synthetic_dataloader)
     IS_LARGE_SCALE = (n_equations >= 100000)

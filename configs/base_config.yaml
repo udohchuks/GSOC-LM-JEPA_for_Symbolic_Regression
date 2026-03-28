@@ -10,7 +10,7 @@ data:
   cache_dir:   "cache/"               # preprocessed .pt files
 
   # Synthetic pretraining corpus
-  synthetic_cache: "cache/synthetic_10k.pt"
+  synthetic_cache: "cache/synthetic_1M"
   n_synthetic:     1000000              # Colab: 10k, Cloud: 1M+
   n_data_points:   2000              # rows per synthetic equation
 
