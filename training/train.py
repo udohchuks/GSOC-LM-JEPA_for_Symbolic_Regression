@@ -26,7 +26,10 @@ from torch.utils.data import DataLoader, random_split
 
 from training.trainer import LLMJEPAModule
 from data.aif_dataset import build_aif_dataloader
-from data.synthetic_dataset import build_synthetic_dataloader, LazySyntheticDataset
+from data.synthetic_dataset import build_synthetic_dataloader, LazySyntheticDataset, SyntheticEquation
+
+# Explicitly allow the custom class to be unpickled
+torch.serialization.add_safe_globals([SyntheticEquation])
 # Enable Tensor Core utilization on NVIDIA GPUs (A100, H100, L4, etc.)
 torch.set_float32_matmul_precision('medium')
 

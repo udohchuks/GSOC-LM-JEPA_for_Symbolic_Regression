@@ -546,6 +546,10 @@ class SyntheticEquation:
     n_vars:            int
     epsilon:           float               # noise level used
 
+# Explicitly allow the custom class to be unpickled
+import torch
+torch.serialization.add_safe_globals([SyntheticEquation])
+
 def generate_one_equation(
     builder:        PhysicsTreeBuilder,
     n_data_points:  int = 1000,
