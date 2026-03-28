@@ -7,6 +7,7 @@ Usage:
     python run_eval.py --ckpt checkpoints/last.ckpt
 """
 
+import os
 import argparse
 from pathlib import Path
 from models.evaluator import ModelEvaluator
