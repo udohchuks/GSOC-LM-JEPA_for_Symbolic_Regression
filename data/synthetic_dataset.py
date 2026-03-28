@@ -800,7 +800,7 @@ class LazySyntheticDataset(Dataset):
         self.max_cache_size = 1 # 1 chunk (prev 2) to save RAM on Colab
         
         self.refresh()
-
+        
     def refresh(self):
         """
         Scan the cache directory for new part files and update the index.
@@ -812,32 +812,39 @@ class LazySyntheticDataset(Dataset):
         if not self.cache_dir.exists():
             return
 
-        # Discover all part files and sort them
-        current_files = sorted(list(self.cache_dir.glob("part_*.pt")), 
-                               key=lambda x: int(x.stem.split('_')[1]))
+        # Discover all part files and sort them numerically by index (part_0.pt, part_1.pt, etc)
+        current_files = sorted(
+            list(self.cache_dir.glob("part_*.pt")), 
+            key=lambda x: int(x.stem.split('_')[1])
+        )
         
         # Only add files we haven't indexed yet
         new_files = [f for f in current_files if f not in self.all_files_seen]
         
         if new_files:
-            print(f"Dataset Refresh: Found {len(new_files)} new data parts. Indexing...")
             for pf in new_files:
                 try:
                     # We load each part to build the global index map
                     data = torch.load(pf, weights_only=False)
                     size = len(data)
+                    
+                    if size == 0:
+                        continue
+                        
                     self.all_files_seen.add(pf)
                     self.part_files.append(pf)
                     self.file_offsets.append(self.total_size)
                     self.file_sizes.append(size)
                     self.total_size += size
+                    
                     del data # free memory
                     import gc
                     gc.collect()
                 except Exception as e:
-                    # If file is still being written, skip it for now
-                    print(f"  Warning: Skipping {pf.name} (likely incomplete): {e}")
+                    # If file is still being written or corrupted, skip it for now
+                    print(f"  Warning: Skipping {pf.name} (likely incomplete/corrupted): {e}")
                     break
+            
             print(f"Dataset Refresh: Total equations now {self.total_size}")
 
     def __len__(self) -> int:
