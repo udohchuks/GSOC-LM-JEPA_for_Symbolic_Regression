@@ -894,39 +894,33 @@ class LazySyntheticDataset(Dataset):
         return self.total_size
 
     def __getitem__(self, idx: int) -> Dict:
+        """
+        Retrieves a single equation. If the data chunk is missing or corrupted,
+        it immediately skips and picks a new random index.
+        """
         import bisect
-        # Find which file contains this index
+        import random
+        
         file_idx = bisect.bisect_right(self.file_offsets, idx) - 1
         inner_idx = idx - self.file_offsets[file_idx]
         
-        # Load chunk if not in cache
-        if file_idx not in self.chunk_cache:
-            # Maintain cache size
-            if len(self.chunk_cache) >= self.max_cache_size:
-                # Remove oldest (first inserted) key
-                first_key = next(iter(self.chunk_cache))
-                del self.chunk_cache[first_key]
+        try:
+            if file_idx not in self.chunk_cache:
+                # Cache management
+                if len(self.chunk_cache) >= self.max_cache_size:
+                    self.chunk_cache.pop(next(iter(self.chunk_cache)))
                 
-            # ── Retry logic for robust loading (handles transient EOFErrors) ──
-            max_retries = 3
-            import time
-            for attempt in range(max_retries):
-                try:
-                    equations = torch.load(self.part_files[file_idx], weights_only=False)
-                    # Reuse the formatting logic from SyntheticDataset
-                    self.chunk_cache[file_idx] = SyntheticDataset(
-                        equations, 
-                        max_n_vars=self.max_n_vars,
-                        n_rows=self.n_rows
-                    )
-                    break
-                except (EOFError, RuntimeError) as e:
-                    if attempt == max_retries - 1:
-                        print(f"  Error: Failed to load {self.part_files[file_idx]} after {max_retries} attempts: {e}")
-                        raise e
-                    time.sleep(1.0) # wait for FS sync
+                # Load chunk once. If it fails (EOF/corrupt), we fall through to the except block.
+                equations = torch.load(self.part_files[file_idx], weights_only=True)
+                self.chunk_cache[file_idx] = SyntheticDataset(
+                    equations, max_n_vars=self.max_n_vars, n_rows=self.n_rows
+                )
             
-        return self.chunk_cache[file_idx][inner_idx]
+            return self.chunk_cache[file_idx][inner_idx]
+            
+        except (EOFError, RuntimeError, FileNotFoundError, IndexError, KeyError):
+            # Immediate fallback to a new random index
+            return self.__getitem__(random.randint(0, self.total_size - 1))
 
 def _worker_fn(n_data_points, _):
     """Worker function for parallel synthetic data generation."""
