@@ -10,6 +10,10 @@ SIGReg Notes:
 - NO EMA updates
 - Collapse prevented by SIGReg loss on concatenated embeddings
 """
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Silence TensorFlow
+os.environ['CUDA_MODULE_LOADING'] = 'LAZY'
+
 import argparse
 import yaml
 import torch
@@ -23,25 +27,9 @@ from torch.utils.data import DataLoader, random_split
 from training.trainer import LLMJEPAModule
 from data.aif_dataset import build_aif_dataloader
 from data.synthetic_dataset import build_synthetic_dataloader, LazySyntheticDataset
-
-
 # Enable Tensor Core utilization on NVIDIA GPUs (A100, H100, L4, etc.)
 torch.set_float32_matmul_precision('medium')
 
-
-class RefreshDatasetCallback(pl.Callback):
-    """
-    Refreshes the dataset at the start of each epoch.
-    This allows training to pick up new part files generated simultaneously.
-    """
-    def on_train_epoch_start(self, trainer, pl_module):
-        dataset = trainer.train_dataloader.dataset
-        # If it's a Subset (from random_split), we need the underlying dataset
-        if isinstance(dataset, torch.utils.data.Subset):
-            dataset = dataset.dataset
-            
-        if isinstance(dataset, LazySyntheticDataset):
-            dataset.refresh()
 
 def main():
     parser = argparse.ArgumentParser(description="Train LLM-JEPA")
@@ -57,7 +45,7 @@ def main():
     cfg_loss     = config['loss']
     cfg_train    = config['training']
     cfg_log      = config['logging']
-    cfg_ckpt     = config['checkpoint']
+    cfg_ckpt     = config.get('checkpoint', config.get('checkpoints', {}))
     cfg_hw       = config['hardware']
     cfg_pred     = cfg_model.get('predictor', {})
 
@@ -91,22 +79,14 @@ def main():
     N_SYNTHETIC  = cfg_data.get('n_synthetic', 10000)
 
     # ── 2. Data Loaders ──────────────────────────────────────────────────────
-    # Training & Validation: always use synthetic dataset (pre-split 90/10)
-    full_synthetic_loader = build_synthetic_dataloader(
-        n_equations=N_SYNTHETIC,
-        batch_size=BATCH_SIZE,
-        n_rows=N_ROWS,
-        cache_path=cfg_data.get('synthetic_cache', 'cache/synthetic_1M'),
-        n_data_points=cfg_data.get('n_data_points', 1000),
+    # Point this to your COMPLETED 1M equation directory
+    full_dataset = LazySyntheticDataset(
+        cache_dir=cfg_data.get('synthetic_cache', 'cache/synthetic_1M'),
         max_n_vars=MAX_N_VARS,
-        num_workers=NUM_WORKERS,
-        generate=False,
-        chunk_size=cfg_data.get('chunk_size', 2000),
-        max_cache_size=cfg_data.get('max_cache_size', 16),
+        n_rows=N_ROWS
     )
 
     # Split synthetic into 90% train / 10% val
-    full_dataset = full_synthetic_loader.dataset
     val_size     = max(1, int(0.1 * len(full_dataset)))
     train_size   = len(full_dataset) - val_size
 
@@ -116,19 +96,25 @@ def main():
         generator=torch.Generator().manual_seed(42),  # reproducible split
     )
 
+    from data.aif_dataset import collate_fn
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        collate_fn=full_synthetic_loader.collate_fn,
-        num_workers=full_synthetic_loader.num_workers,
+        collate_fn=collate_fn,
+        num_workers=NUM_WORKERS,
+        pin_memory=True,
+        persistent_workers=(NUM_WORKERS > 0)
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
-        collate_fn=full_synthetic_loader.collate_fn,
-        num_workers=full_synthetic_loader.num_workers,
+        collate_fn=collate_fn,
+        num_workers=NUM_WORKERS,
+        pin_memory=True,
+        persistent_workers=(NUM_WORKERS > 0)
     )
 
     # Test: always use the AIF (Feynman) dataset
@@ -169,10 +155,14 @@ def main():
         invalid_weight=cfg_loss.get('alpha_lm', 2.0),
     )
 
-    # ── 4. Callbacks & Logger ────────────────────────────────────────────────
+    # Dynamic run name based on dataset size and key hyperparams
+    n_k = len(full_dataset) // 1000
+    default_name = f"llmjepa_{n_k}k_eqs_d{D_MODEL}_bs{BATCH_SIZE}"
+    run_name = cfg_log.get('run_name', default_name)
+    
     logger = TensorBoardLogger(
         "tb_logs",
-        name=cfg_log.get('run_name', 'llmjepa_sr_base'),
+        name=run_name,
         log_graph=False,
     )
     
@@ -187,7 +177,7 @@ def main():
     
     early_stop = EarlyStopping(
         monitor=cfg_ckpt.get('monitor', 'val/total'),
-        patience=10,
+        patience=20,
         mode=cfg_ckpt.get('mode', 'min'),
         verbose=True,
     )
@@ -200,8 +190,14 @@ def main():
         strategy=cfg_hw.get('strategy', 'auto'),
         precision=cfg_hw.get('precision', '16-mixed'),
         logger=logger,
-        callbacks=[checkpoint_callback, early_stop, LearningRateMonitor(), RefreshDatasetCallback()],
+        callbacks=[
+            checkpoint_callback, 
+            early_stop, 
+            LearningRateMonitor(), 
+        ],
         log_every_n_steps=cfg_log.get('log_every_n_steps', 10),
+        val_check_interval=int(cfg_train.get('val_check_interval', 500)),
+        limit_val_batches=cfg_train.get('limit_val_batches', 1.0),
         gradient_clip_val=GRADIENT_CLIP,
         enable_progress_bar=True,
         enable_model_summary=True,

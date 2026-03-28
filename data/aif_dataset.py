@@ -347,18 +347,26 @@ class AIFDataset(Dataset):
         N      = eq.X_bits.shape[0]   # total available rows
 
         # ── Subsample rows ────────────────────────────────────────────────
+        # ── Handle variable row counts (Subsample or Pad) ──────────────────
         if N > self.n_rows:
+            # Subsample
             row_idx  = np.random.choice(N, self.n_rows, replace=False)
-            X_bits   = eq.X_bits[row_idx]   # [n_rows, n_vars, 16] or [n_rows, n_vars]
+            X_bits   = eq.X_bits[row_idx]
+        elif N < self.n_rows:
+            # Pad rows with zeros to match self.n_rows
+            pad_rows = self.n_rows - N
+            pad_shape = (pad_rows,) + eq.X_bits.shape[1:]
+            padding  = np.zeros(pad_shape, dtype=eq.X_bits.dtype)
+            X_bits   = np.concatenate([eq.X_bits, padding], axis=0)
         else:
             X_bits   = eq.X_bits
         
         # ── UNPACK BITS (Compact uint16 format) ──────────────────────────
         # Each uint16 maps to 16 bits. This reduces RAM usage by 8x.
-        nr, nv = X_bits.shape
-        X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
-        X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big')
-        X_bits = X_bits.reshape(nr, nv, 16)
+        if X_bits.ndim == 2:
+            nr, nv = X_bits.shape
+            X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
+            X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big').reshape(nr, nv, 16)
         # Result is [n_rows, n_vars, 16]
         
         # ── Pad variable dimension to max_n_vars ──────────────────────────

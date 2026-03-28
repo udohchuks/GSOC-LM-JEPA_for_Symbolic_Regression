@@ -1,0 +1,38 @@
+# Verification Config for Checkpointing
+data:
+  synthetic_cache: "cache/mini_verify.pt"
+  n_synthetic:     40
+  n_data_points:   10
+  batch_size:      4
+  num_workers:     0
+  csv_path:        "data/FeynmanEquations.csv"
+  data_dir:        "data/Feynman_with_units/"
+
+model:
+  d_model:      64
+  n_heads:      2
+  n_enc_layers: 1
+  n_dec_layers: 1
+  max_n_vars:   9
+
+loss:
+  num_slices:   8
+  num_points:   5
+
+training:
+  lr:           1e-3
+  max_epochs:   2
+  use_synthetic: true
+  val_check_interval: 2  # Validate every 2 steps
+
+logging:
+  run_name: "verify_ckpt"
+
+checkpoint:
+  dirpath: "checkpoints/verify/"
+  save_top_k: 5
+  monitor: "train/total_step" # Definitely exists from step 1
+
+hardware:
+  accelerator: "cpu"
+  precision:   "32"

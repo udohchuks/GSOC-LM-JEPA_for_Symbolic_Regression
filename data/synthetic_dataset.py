@@ -660,8 +660,8 @@ def generate_one_equation(
         epsilon = float(np.random.choice([0.0, 0.0, 0.0, 1e-4, 1e-3, 1e-2]))
         y_noisy = add_gaussian_noise(y, epsilon=epsilon)
 
-        # ── IEEE-754 encode ───────────────────────────────────────────────
-        X_bits = to_ieee754_16bit(X)   # [N, n_vars, 16]
+        # ── IEEE-754 encode (compact uint16) ──────────────────────────────
+        X_bits = to_ieee754_16bit(X)   # [N, n_vars]
 
         # ── Unit matrix ───────────────────────────────────────────────────
         var_names       = [var_pool[i][0] for i in range(n_vars)]
@@ -735,16 +735,24 @@ class SyntheticDataset(Dataset):
         N      = X_bits.shape[0]
 
         # ── Subsample rows ────────────────────────────────────────────────
+        # ── Handle variable row counts (Subsample or Pad) ──────────────────
         if N > self.n_rows:
+            # Subsample
             row_idx  = np.random.choice(N, self.n_rows, replace=False)
             X_bits   = X_bits[row_idx]
+        elif N < self.n_rows:
+            # Pad rows with zeros to match self.n_rows
+            pad_rows = self.n_rows - N
+            pad_shape = (pad_rows,) + X_bits.shape[1:]
+            padding  = np.zeros(pad_shape, dtype=X_bits.dtype)
+            X_bits   = np.concatenate([X_bits, padding], axis=0)
         
         # ── UNPACK BITS (Compact uint16 format) ──────────────────────────
         # Each uint16 maps to 16 bits. This reduces RAM usage by 8x.
-        nr, nv = X_bits.shape
-        X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
-        X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big')
-        X_bits = X_bits.reshape(nr, nv, 16)
+        if X_bits.ndim == 2:
+            nr, nv = X_bits.shape
+            X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
+            X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big').reshape(nr, nv, 16)
         # Result is [n_rows, n_vars, 16]
         
         # Pad variable dimension to max_n_vars
@@ -810,13 +818,19 @@ class LazySyntheticDataset(Dataset):
         from pathlib import Path
         
         if not self.cache_dir.exists():
-            return
+            return 0
+
+        prev_total = self.total_size
 
         # Discover all part files and sort them numerically by index (part_0.pt, part_1.pt, etc)
-        current_files = sorted(
-            list(self.cache_dir.glob("part_*.pt")), 
-            key=lambda x: int(x.stem.split('_')[1])
-        )
+        if self.cache_dir.is_file():
+            # Support single-file caches (e.g., mini_verify.pt)
+            current_files = [self.cache_dir]
+        else:
+            current_files = sorted(
+                list(self.cache_dir.glob("part_*.pt")), 
+                key=lambda x: int(x.stem.split('_')[1]) if '_' in x.stem else 0
+            )
         
         # Only add files we haven't indexed yet
         new_files = [f for f in current_files if f not in self.all_files_seen]
@@ -851,6 +865,8 @@ class LazySyntheticDataset(Dataset):
                     break
             
             print(f"Dataset Refresh: Total equations now {self.total_size}")
+            return self.total_size - prev_total
+        return 0
 
     def __len__(self) -> int:
         return self.total_size
@@ -1053,61 +1069,24 @@ def build_synthetic_dataloader(
     """
     from pathlib import Path
     
-    # Large scale threshold: if >= 100k, use directory-based lazy loading
-    IS_LARGE_SCALE = (n_equations >= 100000)
-    
-    # Ensure cache directory exists if large scale
-    if IS_LARGE_SCALE and cache_path:
-        cache_dir = Path(cache_path)
-        if cache_dir.suffix == '.pt':
-            cache_dir = cache_dir.with_suffix('') # drop .pt to make it a dir
-    else:
-        cache_dir = None
+    if not cache_path or not Path(cache_path).exists():
+        abs_path = Path(cache_path).absolute() if cache_path else "None"
+        raise FileNotFoundError(
+            f"No cached synthetic data found at {cache_path} (Absolute: {abs_path}). "
+            "Please run 'python -m data.generate_data' first."
+        )
 
-    # Load from cache if available
-    if cache_path and Path(cache_path).exists():
-        if Path(cache_path).is_dir():
-            print(f"Initializing Lazy (disk-backed) dataset from {cache_path} (cache_size={max_cache_size})")
-            dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars, n_rows=n_rows, max_cache_size=max_cache_size)
-        else:
-            print(f"Loading cached synthetic data from {cache_path}")
-            equations = torch.load(cache_path, weights_only=False)
-            print(f"Loaded {len(equations)} equations")
-            dataset = SyntheticDataset(equations, max_n_vars=max_n_vars, n_rows=n_rows)
+    if Path(cache_path).is_dir():
+        print(f"Initializing Lazy (disk-backed) dataset from {cache_path} (cache_size={max_cache_size})")
+        dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars, n_rows=n_rows, max_cache_size=max_cache_size)
     else:
-        # Generation path
-        if not generate:
-            if IS_LARGE_SCALE and cache_path and Path(cache_path).exists():
-                 # Handle case where directory exists but we arrived here
-                 dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars, max_cache_size=max_cache_size)
-            else:
-                abs_path = Path(cache_path).absolute()
-                raise FileNotFoundError(f"No cached synthetic data found at {cache_path} "
-                                        f"(Absolute path: {abs_path}) "
-                                        f"and generation is disabled.")
-
-        print(f"Generating {n_equations} synthetic equations...")
-        if not IS_LARGE_SCALE:
-            # Small scale: keep in memory, save to single file
-            equations = _generate_corpus(n_equations, n_data_points, num_workers=num_workers)
-            if cache_path:
-                Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
-                torch.save(equations, cache_path)
-                print(f"Cached to {cache_path}")
-            dataset = SyntheticDataset(equations, max_n_vars=max_n_vars, n_rows=n_rows)
-        else:
-            # Large scale: save to chunks directly
-            # Use cache_dir (stripped of .pt) for directory-based storage
-            target_dir = cache_dir if cache_dir else cache_path
-            _generate_corpus(n_equations, n_data_points, num_workers=num_workers, 
-                             cache_dir=target_dir, chunk_size=chunk_size)
-            dataset = LazySyntheticDataset(target_dir, max_n_vars=max_n_vars, n_rows=n_rows, max_cache_size=max_cache_size)
+        print(f"Loading cached synthetic data from {cache_path}")
+        equations = torch.load(cache_path, weights_only=False)
+        print(f"Loaded {len(equations)} equations")
+        dataset = SyntheticDataset(equations, max_n_vars=max_n_vars, n_rows=n_rows)
 
     if len(dataset) == 0:
-        raise RuntimeError(
-            f"Dataset at {cache_path} is empty! Please ensure generation has "
-            "completed at least one chunk, or clear the cache if files are corrupted."
-        )
+        raise RuntimeError(f"Dataset at {cache_path} is empty! Please verify your data generation.")
 
     return DataLoader(
         dataset,
@@ -1117,7 +1096,7 @@ def build_synthetic_dataloader(
         collate_fn=collate_fn,
         pin_memory=True,
         worker_init_fn=seed_worker,
-        persistent_workers=False,
+        persistent_workers=True,
     )
 
 
