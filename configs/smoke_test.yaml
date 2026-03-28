@@ -1,0 +1,36 @@
+# Smoke Test Configuration
+# Fast local validation (1 epoch, CPU)
+data:
+  synthetic_cache: "cache/smoke_test.pt"
+  n_synthetic:     5000
+  n_data_points:   100
+  batch_size:      4
+  num_workers:     0
+  csv_path:        "data/FeynmanEquations.csv"
+  data_dir:        "data/Feynman_with_units/"
+
+model:
+  d_model:      64
+  n_heads:      2
+  n_enc_layers: 1
+  n_dec_layers: 1
+  max_n_vars:   9
+
+loss:
+  num_slices:   16
+  num_points:   5
+
+training:
+  lr:           1e-3
+  max_epochs:   1
+  use_synthetic: true
+
+logging:
+  run_name: "smoke_test"
+
+checkpoint:
+  dirpath: "checkpoints/smoke/"
+
+hardware:
+  accelerator: "cpu"
+  precision:   "32"

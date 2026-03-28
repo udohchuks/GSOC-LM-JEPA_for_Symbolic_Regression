@@ -774,32 +774,53 @@ class LazySyntheticDataset(Dataset):
         self.cache_dir = Path(cache_dir)
         self.max_n_vars = max_n_vars
         
-        # Discover all part files and sort them
-        self.part_files = sorted(list(self.cache_dir.glob("part_*.pt")), 
-                                 key=lambda x: int(x.stem.split('_')[1]))
-        
-        if not self.part_files:
-            raise FileNotFoundError(f"No part files found in {cache_dir}")
-            
         # Build index map: which global index belongs to which file
+        self.all_files_seen = set()
+        self.part_files = []
         self.file_offsets = []
         self.total_size = 0
         self.file_sizes = []
-        
-        print(f"Indexing lazy dataset from {len(self.part_files)} files...")
-        for pf in self.part_files:
-            # We load just one to get the size, then assume others are similar
-            # (Last one might be smaller)
-            data = torch.load(pf, weights_only=False)
-            size = len(data)
-            self.file_offsets.append(self.total_size)
-            self.file_sizes.append(size)
-            self.total_size += size
-            del data # free memory
-            
-        # Minimal LRU cache: store multiple chunks to avoid thrashing
         self.chunk_cache = {} # {file_idx: proxy_dataset}
         self.max_cache_size = 2 # 2 chunks (10k each) ~ 4GB RAM total
+        
+        self.refresh()
+
+    def refresh(self):
+        """
+        Scan the cache directory for new part files and update the index.
+        Safe to call between training epochs to pick up new data.
+        """
+        import torch
+        from pathlib import Path
+        
+        if not self.cache_dir.exists():
+            return
+
+        # Discover all part files and sort them
+        current_files = sorted(list(self.cache_dir.glob("part_*.pt")), 
+                               key=lambda x: int(x.stem.split('_')[1]))
+        
+        # Only add files we haven't indexed yet
+        new_files = [f for f in current_files if f not in self.all_files_seen]
+        
+        if new_files:
+            print(f"Dataset Refresh: Found {len(new_files)} new data parts. Indexing...")
+            for pf in new_files:
+                try:
+                    # We load each part to build the global index map
+                    data = torch.load(pf, weights_only=False)
+                    size = len(data)
+                    self.all_files_seen.add(pf)
+                    self.part_files.append(pf)
+                    self.file_offsets.append(self.total_size)
+                    self.file_sizes.append(size)
+                    self.total_size += size
+                    del data # free memory
+                except Exception as e:
+                    # If file is still being written, skip it for now
+                    print(f"  Warning: Skipping {pf.name} (likely incomplete): {e}")
+                    break
+            print(f"Dataset Refresh: Total equations now {self.total_size}")
 
     def __len__(self) -> int:
         return self.total_size
@@ -856,7 +877,28 @@ def _generate_corpus(
     builder = PhysicsTreeBuilder(max_depth=6)
     equations = []
     n_attempted = 0
-    chunk_count = 0
+    chunk_count = 0 # Initialize here
+    
+    if cache_dir:
+        existing_parts = list(Path(cache_dir).glob("part_*.pt"))
+        if existing_parts:
+            # Approximate current count (assuming each part is chunk_size)
+            # This is fast and avoiding loading all files.
+            current_count = len(existing_parts) * chunk_size
+            chunk_count = max([int(p.stem.split('_')[1]) for p in existing_parts]) + 1
+            
+            # Adjust n_equations to be the *remaining* amount needed
+            needed = max(0, n_equations - current_count)
+            if needed == 0:
+                if verbose:
+                    print(f"Cache at {cache_dir} already contains ~{current_count} equations. Target {n_equations} reached.")
+                return None
+            
+            if verbose:
+                print(f"Resuming: found ~{current_count} equations. Generating {needed} more to reach {n_equations}.")
+            n_equations = needed
+        else:
+            chunk_count = 0
     
     if verbose:
         print(f"Generating {n_equations} equations using {num_workers} workers...")
@@ -904,15 +946,15 @@ def _generate_corpus(
         if cache_dir and equations:
             part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
             torch.save(equations, part_path)
-            equations = []
+            # Note: No need to clear here, we're about to exit and return None/equations
         
         if pbar:
             pbar.close()
 
     if verbose:
         total = chunk_count * chunk_size + len(equations)
-        print(f"Done: {total} equations from {n_attempted} attempts "
-              f"({total/n_attempted*100:.1f}% yield)")
+        rate = (total / n_attempted * 100) if n_attempted > 0 else 0
+        print(f"Done: {total} equations from {n_attempted} attempts ({rate:.1f}% yield)")
     
     return equations if not cache_dir else None
 
@@ -925,6 +967,7 @@ def build_synthetic_dataloader(
     max_n_vars:    int = 9,
     num_workers:   int = 2,
     cache_path:    Optional[str] = None,
+    generate:      bool = True,
 ) -> DataLoader:
     """
     Build DataLoader for synthetic pretraining data.
@@ -968,6 +1011,14 @@ def build_synthetic_dataloader(
             dataset = SyntheticDataset(equations, max_n_vars=max_n_vars)
     else:
         # Generation path
+        if not generate:
+            if IS_LARGE_SCALE and cache_path and Path(cache_path).exists():
+                 # Handle case where directory exists but we arrived here (shouldn't happen with 959 logic)
+                 dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
+            else:
+                raise FileNotFoundError(f"No cached synthetic data found at {cache_path} "
+                                        f"and generation is disabled.")
+
         print(f"Generating {n_equations} synthetic equations...")
         if not IS_LARGE_SCALE:
             # Small scale: keep in memory, save to single file
@@ -979,9 +1030,11 @@ def build_synthetic_dataloader(
             dataset = SyntheticDataset(equations, max_n_vars=max_n_vars)
         else:
             # Large scale: save to chunks directly
+            # Use cache_dir (stripped of .pt) for directory-based storage
+            target_dir = cache_dir if cache_dir else cache_path
             _generate_corpus(n_equations, n_data_points, num_workers=num_workers, 
-                             cache_dir=cache_path, chunk_size=10000)
-            dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
+                             cache_dir=target_dir, chunk_size=10000)
+            dataset = LazySyntheticDataset(target_dir, max_n_vars=max_n_vars)
 
     return DataLoader(
         dataset,

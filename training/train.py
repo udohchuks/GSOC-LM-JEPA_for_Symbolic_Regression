@@ -20,8 +20,22 @@ from torch.utils.data import DataLoader, random_split
 
 from training.trainer import LLMJEPAModule
 from data.aif_dataset import build_aif_dataloader
-from data.synthetic_dataset import build_synthetic_dataloader
+from data.synthetic_dataset import build_synthetic_dataloader, LazySyntheticDataset
 
+
+class RefreshDatasetCallback(pl.Callback):
+    """
+    Refreshes the dataset at the start of each epoch.
+    This allows training to pick up new part files generated simultaneously.
+    """
+    def on_train_epoch_start(self, trainer, pl_module):
+        dataset = trainer.train_dataloader.dataset
+        # If it's a Subset (from random_split), we need the underlying dataset
+        if isinstance(dataset, torch.utils.data.Subset):
+            dataset = dataset.dataset
+            
+        if isinstance(dataset, LazySyntheticDataset):
+            dataset.refresh()
 
 def main():
     parser = argparse.ArgumentParser(description="Train LLM-JEPA")
@@ -78,6 +92,7 @@ def main():
         n_data_points=cfg_data.get('n_data_points', 1000),
         max_n_vars=MAX_N_VARS,
         num_workers=NUM_WORKERS,
+        generate=False,
     )
 
     # Split synthetic into 90% train / 10% val
@@ -111,7 +126,7 @@ def main():
         csv_path=cfg_data['csv_path'],
         data_dir=cfg_data['data_dir'],
         batch_size=BATCH_SIZE,
-        cache_dir=cfg_data.get('cache_dir'),
+        cache_dir=cfg_data.get('cache_dir', 'cache/'),
         num_workers=NUM_WORKERS,
     )
 
@@ -175,7 +190,7 @@ def main():
         strategy=cfg_hw.get('strategy', 'auto'),
         precision=cfg_hw.get('precision', '16-mixed'),
         logger=logger,
-        callbacks=[checkpoint_callback, early_stop, LearningRateMonitor()],
+        callbacks=[checkpoint_callback, early_stop, LearningRateMonitor(), RefreshDatasetCallback()],
         log_every_n_steps=cfg_log.get('log_every_n_steps', 10),
         gradient_clip_val=GRADIENT_CLIP,
         enable_progress_bar=True,

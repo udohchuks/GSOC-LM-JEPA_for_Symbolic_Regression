@@ -1,0 +1,35 @@
+# Test Configuration for Scaling and Simultaneous Generation
+data:
+  synthetic_cache: "cache/test_simultaneous.pt"
+  n_synthetic:     20000                # Goal for generation
+  n_data_points:   100
+  batch_size:      4
+  num_workers:     0                    # Use 0 for easier debugging
+  csv_path:        "data/FeynmanEquations.csv"
+  data_dir:        "data/Feynman_with_units/"
+
+model:
+  d_model:      64
+  n_heads:      2
+  n_enc_layers: 1
+  n_dec_layers: 1
+  max_n_vars:   9
+
+loss:
+  num_slices:   16
+  num_points:   5
+
+training:
+  lr:           1e-3
+  max_epochs:   2
+  use_synthetic: true
+
+logging:
+  run_name: "test_scaling"
+
+checkpoint:
+  dirpath: "checkpoints/test/"
+
+hardware:
+  accelerator: "cpu"
+  precision:   "32"

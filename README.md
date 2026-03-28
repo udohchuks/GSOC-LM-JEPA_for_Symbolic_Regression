@@ -7,6 +7,8 @@ A Joint Embedding Predictive Architecture (JEPA) for Symbolic Regression. Parses
 - **MixEncoder + JEPA** — Predicts formulas in latent space via set-attention and column-attention
 - **Unit-Validated Decoding** — Masks invalid tokens based on RPN stack depth and dimensional analysis
 - **SIGReg Collapse Prevention** — No EMA needed; both encoders are trainable
+- **Memory-Optimized Pipeline** — `uint8` bit-storage and 10k-chunk incremental saving for 1M+ scales
+- **Decoupled Generation** — Parallel data generation and training with dynamic dataset refreshing
 - **Comprehensive Evaluation** — Noise tolerance, data efficiency, extrapolation, complexity analysis
 
 ---
@@ -39,11 +41,28 @@ python -c "import tarfile; tar = tarfile.open('Feynman_with_units.tar.gz'); tar.
 
 ---
 
-## Training
 
-All hyperparameters are in `configs/base_config.yaml`. Train with:
+
+### 1. Generate Synthetic Data
+Large-scale pretraining requires a synthetic corpus. You can generate this separately or in parallel with training:
 
 ```bash
+# Generate 1M equations (configured in base_config.yaml)
+python -m data.generate_data --config configs/base_config.yaml
+```
+
+### 2. Preprocess AIF Dataset
+Precompute the evaluation dataset to ensure instant training startup:
+
+```bash
+python -m data.preprocess_aif --config configs/base_config.yaml
+```
+
+### 3. Start Training
+The training script loads existing cache parts and automatically detects new parts as they are generated:
+
+```bash
+# In a separate terminal
 python -m training.train --config configs/base_config.yaml
 ```
 
@@ -151,10 +170,12 @@ python -m unittest discover tests
 │   ├── FeynmanEquations.csv   # Equation metadata
 │   ├── Feynman_with_units/    # Raw data files (100 equations)
 │   ├── aif_dataset.py         # AIF dataset loader
-│   ├── synthetic_dataset.py   # Synthetic pretraining data
+│   ├── preprocess_aif.py      # Standalone AIF preprocessing CLI
+│   ├── synthetic_dataset.py   # Synthetic pretraining data (Lazy loading)
+│   ├── generate_data.py       # Standalone generation CLI
 │   ├── tokenizer.py           # RPN tokenizer (44 tokens)
 │   ├── unit_table.py          # Physical unit lookup
-│   └── utils.py               # IEEE-754 encoding, unit targets
+│   └── utils.py               # IEEE-754 encoding (uint8 optimized), unit targets
 ├── docs/
 │   ├── overview.md            # High-level architecture and design decisions
 │   └── technical_reference.md # Detailed module-by-module reference

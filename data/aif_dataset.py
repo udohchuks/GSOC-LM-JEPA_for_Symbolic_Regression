@@ -444,7 +444,7 @@ def build_aif_dataset(
     cache_dir:       Optional[str | Path] = None,
     n_rows:          int = 200,
     max_n_vars:      int = 9,
-    max_rows_per_eq: int = 100_000,
+    max_rows_per_eq: int = 10000,
 ) -> AIFDataset:
     """
     Build the AIF dataset from CSV and data files.

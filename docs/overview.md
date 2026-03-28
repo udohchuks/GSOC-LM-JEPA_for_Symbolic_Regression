@@ -89,8 +89,9 @@ GSOC-LM-JEPA_for_Symbolic_Regression/
 │   ├── tokenizer.py          # RPN vocabulary, encode/decode, validity mask
 │   ├── unit_table.py         # SI unit vectors, class index mapping
 │   ├── aif_dataset.py        # AI Feynman dataset loader (evaluation)
-│   ├── synthetic_dataset.py  # Physics-informed synthetic data generator
-│   └── utils.py              # IEEE-754 encoding, noise, unit targets
+│   ├── synthetic_dataset.py  # Physics-informed synthetic data (Lazy loading)
+│   ├── generate_data.py      # Standalone generation CLI
+│   └── utils.py              # IEEE-754 encoding (uint8 optimized), noise
 │
 ├── models/
 │   ├── embedders.py          # DataEmbedder (IEEE-754→embedding), UnitEmbedder
@@ -123,16 +124,25 @@ GSOC-LM-JEPA_for_Symbolic_Regression/
 
 ---
 
-## Training
+
+### 1. Generate Synthetic Data
+Large-scale pretraining requires a synthetic corpus. You can generate this separately or in parallel with training:
 
 ```bash
-# Full training (from base config)
+# Generate 1M equations (configured in base_config.yaml)
+python -m data.generate_data --config configs/base_config.yaml
+```
+
+### 2. Start Training
+The training script loads existing cache parts and automatically detects new parts at the start of every epoch via a `RefreshDatasetCallback`:
+
+```bash
+# In a separate terminal
 python -m training.train --config configs/base_config.yaml
+```
 
-# Smoke test (1 epoch, CPU, fast)
-python -m training.train --config configs/smoke_test.yaml
-
-# Monitor
+### 3. Monitor
+```bash
 tensorboard --logdir tb_logs
 ```
 

@@ -11,9 +11,6 @@ Classifier conversion:
     Raw exponent + UNIT_OFFSET → class index in [0, 8]
     UNIT_OFFSET = 4 (shifts [-4,+4] to [0,8] for PyTorch cross_entropy)
 
-CRITICAL: Some variable names are ambiguous (H, I, V appear with different units
-in different equations). The AIF CSV row contains the correct units per equation.
-This table provides defaults, but equation-specific units from CSV take precedence.
 """
 
 from __future__ import annotations
