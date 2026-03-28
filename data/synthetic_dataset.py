@@ -731,13 +731,21 @@ class SyntheticDataset(Dataset):
         eq     = self.equations[idx]
         n_vars = eq.n_vars
 
-        X_bits = eq.X_bits   # [N, n_vars, 16] (uint8/uint16 encoded)
+        X_bits = eq.X_bits   # [N, n_vars, 16] or [N, n_vars]
         N      = X_bits.shape[0]
 
         # ── Subsample rows ────────────────────────────────────────────────
         if N > self.n_rows:
             row_idx  = np.random.choice(N, self.n_rows, replace=False)
             X_bits   = X_bits[row_idx]
+        
+        # ── UNPACK BITS (Compact uint16 format) ─────────────────────────
+        # Each uint16 maps to 16 bits. This reduces RAM usage by 8x.
+        nr, nv = X_bits.shape
+        X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
+        X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big')
+        X_bits = X_bits.reshape(nr, nv, 16)
+        # Result is now consistently [n_rows, n_vars, 16]
         
         # Pad variable dimension to max_n_vars
         pad_vars = self.max_n_vars - n_vars
@@ -789,7 +797,7 @@ class LazySyntheticDataset(Dataset):
         self.total_size = 0
         self.file_sizes = []
         self.chunk_cache = {} # {file_idx: proxy_dataset}
-        self.max_cache_size = 2 # 2 chunks (10k each) ~ 4GB RAM total
+        self.max_cache_size = 1 # 1 chunk (prev 2) to save RAM on Colab
         
         self.refresh()
 
@@ -824,6 +832,8 @@ class LazySyntheticDataset(Dataset):
                     self.file_sizes.append(size)
                     self.total_size += size
                     del data # free memory
+                    import gc
+                    gc.collect()
                 except Exception as e:
                     # If file is still being written, skip it for now
                     print(f"  Warning: Skipping {pf.name} (likely incomplete): {e}")
@@ -870,7 +880,7 @@ def _generate_corpus(
     verbose:       bool = True,
     num_workers:   int = None,
     cache_dir:     str  = None,
-    chunk_size:    int  = 10000,
+    chunk_size:    int  = 1000,
 ) -> Optional[List[SyntheticEquation]]:
     """
     Generate a corpus of physics-informed synthetic equations.
@@ -1118,7 +1128,7 @@ if __name__ == '__main__':
         print(f'  RPN:     {eq.rpn_tokens}')
         print(f'  X_bits:  {eq.X_bits.shape}')
         print(f'  epsilon: {eq.epsilon}')
-        assert eq.X_bits.shape         == (200, eq.n_vars, 16)
+        assert eq.X_bits.shape         == (200, eq.n_vars)
         assert eq.token_ids.shape      == (MAX_SEQ_LEN,)
         assert eq.unit_targets_idx.shape == (MAX_SEQ_LEN, 5)
 

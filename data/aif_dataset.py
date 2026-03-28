@@ -347,13 +347,19 @@ class AIFDataset(Dataset):
         N      = eq.X_bits.shape[0]   # total available rows
 
         # ── Subsample rows ────────────────────────────────────────────────
-        # Random sampling without replacement
-        # Different rows sampled each epoch → acts as data augmentation
         if N > self.n_rows:
             row_idx  = np.random.choice(N, self.n_rows, replace=False)
-            X_bits   = eq.X_bits[row_idx]   # [n_rows, n_vars, 16]
+            X_bits   = eq.X_bits[row_idx]   # [n_rows, n_vars, 16] or [n_rows, n_vars]
         else:
-            X_bits   = eq.X_bits             # [N, n_vars, 16]
+            X_bits   = eq.X_bits
+        
+        # ── UNPACK BITS (Compact uint16 format) ─────────────────────────
+        # Each uint16 maps to 16 bits. This reduces RAM usage by 8x.
+        nr, nv = X_bits.shape
+        X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
+        X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big')
+        X_bits = X_bits.reshape(nr, nv, 16)
+        # Result is now consistently [n_rows, n_vars, 16]
         
         # ── Pad variable dimension to max_n_vars ──────────────────────────
         # Why pad? Tensors in a batch must have identical shapes.

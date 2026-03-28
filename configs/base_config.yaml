@@ -18,7 +18,7 @@ data:
   n_rows:      400                   # rows subsampled per equation per step
   max_n_vars:  9                     # variable padding size
   batch_size:  128
-  num_workers: 2
+  num_workers: 1
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:

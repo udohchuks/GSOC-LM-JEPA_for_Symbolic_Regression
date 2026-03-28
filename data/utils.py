@@ -17,49 +17,25 @@ import sympy
 
 def to_ieee754_16bit(x: np.ndarray) -> np.ndarray:
     """
-    Convert float array to 16-bit IEEE-754 multi-hot binary representation.
+    Convert float array to 16-bit IEEE-754 compact representation.
 
-    Every scalar maps to exactly 16 binary values {0.0, 1.0} regardless
-    of magnitude. Scale-invariant by construction.
+    Every scalar maps to a single uint16 value representing its 16 bits.
+    This replaces the 16x larger uint8 bit-mask array to save RAM.
 
-    Validated encoding used by NeSymReS (Biggio et al. 2021) and
-    SNIP (Meidani et al. 2024).
-
-    Why numpy only (no torch):
-        np.unpackbits operates on uint8 arrays — no torch equivalent.
-        Pre-compute this on CPU during data loading and cache the result.
-        Do NOT run this inside the model forward pass.
-
+    To get bits back:
+        bits = np.unpackbits(x.view(np.uint8).reshape(-1, 2), axis=-1, bitorder='big')
+    
     Args:
         x: numpy float array of any shape [...]
-
+    
     Returns:
-        numpy float32 array of shape [..., 16]
-        values are exactly 0.0 or 1.0
+        numpy uint16 array of the same shape [...]
     """
     # Step 1: cast to float16 — half precision
-    # This quantises the values but gives us exactly 16 bits to work with
     x_f16 = x.astype(np.float16)
 
     # Step 2: view the raw memory as uint16
-    # This reinterprets the same bytes as unsigned integers
-    # No computation — just a different lens on the same memory
-    x_unit16 = x_f16.view(np.uint16)
-
-    # Step 2: view the raw memory as uint16
-    # This reinterprets the same bytes as unsigned integers
-    # No computation — just a different lens on the same memory
-    x_unit8 = x_unit16.view(np.uint8)
-
-    # Step 4: unpack each byte into 8 individual bits
-    # bitorder='big': most significant bit first
-    # Result shape: [..., 16] 
-    bits = np.unpackbits(x_unit8, axis=-1, bitorder='big')
-
-    target_shape = x.shape + (16,)
-    # Step 5: reshape to [..., 16] and return as uint8 to save RAM
-    # Will be cast to float32 only when needed in the DataLoader
-    return bits.reshape(target_shape).astype(np.uint8)
+    return x_f16.view(np.uint16)
 
 # ── 2. Gaussian noise ─────────────────────────────────────────────────────────
 
@@ -266,14 +242,20 @@ def unit_targets_to_class_indices(
 if __name__ == '__main__':
     # ── Test 1: IEEE-754 ──────────────────────────────────────────────────
     x = np.array([[1.0, 2.0, -1.5]], dtype=np.float32)
-    bits = to_ieee754_16bit(x)
-    assert bits.shape == (1, 3, 16), f"Got shape {bits.shape}"
-    assert set(bits.flatten().tolist()).issubset({0.0, 1.0})
+    compact = to_ieee754_16bit(x)
+    assert compact.shape == (1, 3), f"Got shape {compact.shape}"
+    assert compact.dtype == np.uint16
 
-    # Different values must produce different bit patterns
+    # Verify bit recovery
+    u8 = compact.view(np.uint8).reshape(compact.shape + (2,))
+    bits = np.unpackbits(u8, axis=-1, bitorder='big').reshape(compact.shape + (16,))
+    assert bits.shape == (1, 3, 16)
+    assert set(bits.flatten().tolist()).issubset({0, 1})
+
+    # Different values must produce different patterns
     a = to_ieee754_16bit(np.array([1.0], dtype=np.float32))
     b = to_ieee754_16bit(np.array([2.0], dtype=np.float32))
-    assert not np.array_equal(a, b)
+    assert a[0] != b[0]
     print('IEEE-754: OK')
 
     # ── Test 2: Gaussian noise ────────────────────────────────────────────
