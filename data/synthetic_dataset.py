@@ -761,6 +761,162 @@ class SyntheticDataset(Dataset):
         }
 
 
+class LazySyntheticDataset(Dataset):
+    """
+    Memory-efficient Dataset for large synthetic corpora (1M+).
+    
+    Instead of loading all equations into RAM, it loads them from multiple
+    chunk files (.pt) on demand. Uses a small cache to avoid redundant loads.
+    """
+    def __init__(self, cache_dir: str, max_n_vars: int = 9):
+        from pathlib import Path
+        self.cache_dir = Path(cache_dir)
+        self.max_n_vars = max_n_vars
+        
+        # Discover all part files and sort them
+        self.part_files = sorted(list(self.cache_dir.glob("part_*.pt")), 
+                                 key=lambda x: int(x.stem.split('_')[1]))
+        
+        if not self.part_files:
+            raise FileNotFoundError(f"No part files found in {cache_dir}")
+            
+        # Build index map: which global index belongs to which file
+        self.file_offsets = []
+        self.total_size = 0
+        self.file_sizes = []
+        
+        print(f"Indexing lazy dataset from {len(self.part_files)} files...")
+        for pf in self.part_files:
+            # We load just one to get the size, then assume others are similar
+            # (Last one might be smaller)
+            data = torch.load(pf, weights_only=False)
+            size = len(data)
+            self.file_offsets.append(self.total_size)
+            self.file_sizes.append(size)
+            self.total_size += size
+            del data # free memory
+            
+        # Minimal LRU cache: store multiple chunks to avoid thrashing during shuffled access
+        self.chunk_cache = {} # {file_idx: proxy_dataset}
+        self.max_cache_size = 2 # 2 chunks ~ 1GB RAM total
+
+    def __len__(self) -> int:
+        return self.total_size
+
+    def __getitem__(self, idx: int) -> Dict:
+        import bisect
+        # Find which file contains this index
+        file_idx = bisect.bisect_right(self.file_offsets, idx) - 1
+        inner_idx = idx - self.file_offsets[file_idx]
+        
+        # Load chunk if not in cache
+        if file_idx not in self.chunk_cache:
+            # Maintain cache size
+            if len(self.chunk_cache) >= self.max_cache_size:
+                # Remove oldest (first inserted) key
+                first_key = next(iter(self.chunk_cache))
+                del self.chunk_cache[first_key]
+                
+            # print(f"Loading cache chunk {file_idx}...")
+            equations = torch.load(self.part_files[file_idx], weights_only=False)
+            # Reuse the formatting logic from SyntheticDataset
+            self.chunk_cache[file_idx] = SyntheticDataset(equations, max_n_vars=self.max_n_vars)
+            
+        return self.chunk_cache[file_idx][inner_idx]
+
+def _worker_fn(n_data_points, _):
+    """Worker function for parallel synthetic data generation."""
+    # Local builder instance per worker for thread-safety (random state)
+    local_builder = PhysicsTreeBuilder(max_depth=6)
+    return generate_one_equation(local_builder, n_data_points=n_data_points)
+
+def _generate_corpus(
+    n_equations:   int,
+    n_data_points: int = 1000,
+    verbose:       bool = True,
+    num_workers:   int = None,
+    cache_dir:     str  = None,
+    chunk_size:    int  = 25000,
+) -> Optional[List[SyntheticEquation]]:
+    """
+    Generate a corpus of physics-informed synthetic equations.
+    Parallelised across CPU cores using multiprocessing.
+    
+    If cache_dir is provided, it saves in chunks of chunk_size to disk
+    to save memory, and returns None. Otherwise returns the full list.
+    """
+    import multiprocessing as mp
+    from functools import partial
+    from pathlib import Path
+
+    if num_workers is None or num_workers <= 0:
+        num_workers = mp.cpu_count()
+
+    builder = PhysicsTreeBuilder(max_depth=6)
+    equations = []
+    n_attempted = 0
+    chunk_count = 0
+    
+    if verbose:
+        print(f"Generating {n_equations} equations using {num_workers} workers...")
+        if cache_dir:
+            print(f"Incremental saving enabled: {chunk_size} equations per part.")
+
+    if cache_dir:
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+
+    # Worker function with fixed n_data_points
+    worker_with_args = partial(_worker_fn, n_data_points)
+
+    with mp.Pool(num_workers) as pool:
+        # We use imap_unordered for better efficiency
+        results = pool.imap_unordered(worker_with_args, range(n_equations * 10)) # overkill range
+        
+        try:
+            from tqdm import tqdm
+            pbar = tqdm(total=n_equations, disable=not verbose, desc="Generating equations")
+        except ImportError:
+            pbar = None
+
+        for eq in results:
+            n_attempted += 1
+            if eq is not None:
+                equations.append(eq)
+                if pbar:
+                    pbar.update(1)
+                elif verbose and len(equations) % 100 == 0:
+                    prog = len(equations) + chunk_count * chunk_size
+                    rate = prog / n_attempted * 100
+                    print(f"  {prog}/{n_equations} | attempts: {n_attempted} | yield: {rate:.1f}%")
+            
+                # Incremental Save
+                if cache_dir and len(equations) >= chunk_size:
+                    part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
+                    torch.save(equations, part_path)
+                    equations = [] # Clear RAM!
+                    chunk_count += 1
+            
+            if (len(equations) + chunk_count * chunk_size) >= n_equations:
+                break
+        
+        # Save remainder
+        if cache_dir and equations:
+            part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
+            torch.save(equations, part_path)
+            equations = []
+        
+        if pbar:
+            pbar.close()
+
+    if verbose:
+        total = chunk_count * chunk_size + len(equations)
+        print(f"Done: {total} equations from {n_attempted} attempts "
+              f"({total/n_attempted*100:.1f}% yield)")
+    
+    return equations if not cache_dir else None
+
+
+
 def build_synthetic_dataloader(
     n_equations:   int,
     batch_size:    int = 32,
@@ -787,20 +943,44 @@ def build_synthetic_dataloader(
         DataLoader with same batch structure as AIF DataLoader.
     """
     from pathlib import Path
+    
+    # Large scale threshold: if >= 100k, use directory-based lazy loading
+    IS_LARGE_SCALE = (n_equations >= 100000)
+    
+    # Ensure cache directory exists if large scale
+    if IS_LARGE_SCALE and cache_path:
+        cache_dir = Path(cache_path)
+        if cache_dir.suffix == '.pt':
+            cache_dir = cache_dir.with_suffix('') # drop .pt to make it a dir
+    else:
+        cache_dir = None
 
     # Load from cache if available
     if cache_path and Path(cache_path).exists():
-        print(f"Loading cached synthetic data from {cache_path}")
-        equations = torch.load(cache_path, weights_only=False)
-        print(f"Loaded {len(equations)} equations")
+        if Path(cache_path).is_dir():
+            print(f"Initializing Lazy (disk-backed) dataset from {cache_path}")
+            dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
+        else:
+            print(f"Loading cached synthetic data from {cache_path}")
+            equations = torch.load(cache_path, weights_only=False)
+            print(f"Loaded {len(equations)} equations")
+            dataset = SyntheticDataset(equations, max_n_vars=max_n_vars)
     else:
+        # Generation path
         print(f"Generating {n_equations} synthetic equations...")
-        equations = _generate_corpus(n_equations, n_data_points, num_workers=num_workers)
-        if cache_path:
-            Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
-            torch.save(equations, cache_path)
-            print(f"Cached to {cache_path}")
-    dataset = SyntheticDataset(equations, max_n_vars=max_n_vars)
+        if not IS_LARGE_SCALE:
+            # Small scale: keep in memory, save to single file
+            equations = _generate_corpus(n_equations, n_data_points, num_workers=num_workers)
+            if cache_path:
+                Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
+                torch.save(equations, cache_path)
+                print(f"Cached to {cache_path}")
+            dataset = SyntheticDataset(equations, max_n_vars=max_n_vars)
+        else:
+            # Large scale: save to chunks directly
+            _generate_corpus(n_equations, n_data_points, num_workers=num_workers, 
+                             cache_dir=cache_path, chunk_size=25000)
+            dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
 
     return DataLoader(
         dataset,
@@ -812,68 +992,6 @@ def build_synthetic_dataloader(
         persistent_workers=(num_workers > 0),
     )
 
-def _worker_fn(n_data_points, _):
-    """Worker function for parallel synthetic data generation."""
-    # Local builder instance per worker for thread-safety (random state)
-    local_builder = PhysicsTreeBuilder(max_depth=6)
-    return generate_one_equation(local_builder, n_data_points=n_data_points)
-
-def _generate_corpus(
-    n_equations:   int,
-    n_data_points: int = 1000,
-    verbose:       bool = True,
-    num_workers:   int = None,
-) -> List[SyntheticEquation]:
-    """
-    Generate a corpus of physics-informed synthetic equations.
-    Parallelised across CPU cores using multiprocessing.
-    """
-    import multiprocessing as mp
-    from functools import partial
-
-    if num_workers is None or num_workers <= 0:
-        num_workers = mp.cpu_count()
-
-    builder = PhysicsTreeBuilder(max_depth=6)
-    equations = []
-    n_attempted = 0
-    
-    if verbose:
-        print(f"Generating {n_equations} equations using {num_workers} workers...")
-
-    # Worker function with fixed n_data_points
-    worker_with_args = partial(_worker_fn, n_data_points)
-
-    with mp.Pool(num_workers) as pool:
-        # We use imap_unordered for better efficiency
-        results = pool.imap_unordered(worker_with_args, range(n_equations * 10)) # overkill range
-        
-        try:
-            from tqdm import tqdm
-            pbar = tqdm(total=n_equations, disable=not verbose, desc="Generating equations")
-        except ImportError:
-            pbar = None
-
-        for eq in results:
-            n_attempted += 1
-            if eq is not None:
-                equations.append(eq)
-                if pbar:
-                    pbar.update(1)
-                elif verbose and len(equations) % 100 == 0:
-                    rate = len(equations) / n_attempted * 100
-                    print(f"  {len(equations)}/{n_equations} | attempts: {n_attempted} | yield: {rate:.1f}%")
-            
-            if len(equations) >= n_equations:
-                break
-        
-        if pbar:
-            pbar.close()
-
-    if verbose:
-        print(f"Done: {len(equations)} equations from {n_attempted} attempts "
-              f"({len(equations)/n_attempted*100:.1f}% yield)")
-    return equations
 
 
 
