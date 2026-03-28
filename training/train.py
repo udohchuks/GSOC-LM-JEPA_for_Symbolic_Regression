@@ -102,6 +102,7 @@ def main():
         num_workers=NUM_WORKERS,
         generate=False,
         chunk_size=cfg_data.get('chunk_size', 2000),
+        max_cache_size=cfg_data.get('max_cache_size', 16),
     )
 
     # Split synthetic into 90% train / 10% val

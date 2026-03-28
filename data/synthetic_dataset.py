@@ -784,7 +784,7 @@ class LazySyntheticDataset(Dataset):
     Instead of loading all equations into RAM, it loads them from multiple
     chunk files (.pt) on demand. Uses a small cache to avoid redundant loads.
     """
-    def __init__(self, cache_dir: str, max_n_vars: int = 9, n_rows: int = 400):
+    def __init__(self, cache_dir: str, max_n_vars: int = 9, n_rows: int = 400, max_cache_size: int = 16):
         from pathlib import Path
         self.cache_dir = Path(cache_dir)
         self.max_n_vars = max_n_vars
@@ -797,7 +797,7 @@ class LazySyntheticDataset(Dataset):
         self.total_size = 0
         self.file_sizes = []
         self.chunk_cache = {} # {file_idx: proxy_dataset}
-        self.max_cache_size = 1 # 1 chunk (prev 2) to save RAM on Colab
+        self.max_cache_size = max_cache_size 
         
         self.refresh()
         
@@ -1032,6 +1032,7 @@ def build_synthetic_dataloader(
     cache_path:    Optional[str] = None,
     generate:      bool = True,
     chunk_size:    int = 2000,
+    max_cache_size: int = 16,
 ) -> DataLoader:
     """
     Build DataLoader for synthetic pretraining data.
@@ -1066,8 +1067,8 @@ def build_synthetic_dataloader(
     # Load from cache if available
     if cache_path and Path(cache_path).exists():
         if Path(cache_path).is_dir():
-            print(f"Initializing Lazy (disk-backed) dataset from {cache_path}")
-            dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars, n_rows=n_rows)
+            print(f"Initializing Lazy (disk-backed) dataset from {cache_path} (cache_size={max_cache_size})")
+            dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars, n_rows=n_rows, max_cache_size=max_cache_size)
         else:
             print(f"Loading cached synthetic data from {cache_path}")
             equations = torch.load(cache_path, weights_only=False)
@@ -1077,8 +1078,8 @@ def build_synthetic_dataloader(
         # Generation path
         if not generate:
             if IS_LARGE_SCALE and cache_path and Path(cache_path).exists():
-                 # Handle case where directory exists but we arrived here (shouldn't happen with 959 logic)
-                 dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
+                 # Handle case where directory exists but we arrived here
+                 dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars, max_cache_size=max_cache_size)
             else:
                 abs_path = Path(cache_path).absolute()
                 raise FileNotFoundError(f"No cached synthetic data found at {cache_path} "
@@ -1100,7 +1101,7 @@ def build_synthetic_dataloader(
             target_dir = cache_dir if cache_dir else cache_path
             _generate_corpus(n_equations, n_data_points, num_workers=num_workers, 
                              cache_dir=target_dir, chunk_size=chunk_size)
-            dataset = LazySyntheticDataset(target_dir, max_n_vars=max_n_vars, n_rows=n_rows)
+            dataset = LazySyntheticDataset(target_dir, max_n_vars=max_n_vars, n_rows=n_rows, max_cache_size=max_cache_size)
 
     if len(dataset) == 0:
         raise RuntimeError(

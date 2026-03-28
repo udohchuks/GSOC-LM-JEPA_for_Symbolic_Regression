@@ -20,6 +20,7 @@ data:
   batch_size:  64
   num_workers: 4                  # Increased for faster bit-unpacking
   chunk_size:  1000
+  max_cache_size: 32                    # prevent cache thrashing during shuffle
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
@@ -62,7 +63,7 @@ training:
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging:
-  log_every_n_steps: 1                  # FLUSH EVERY STEP FOR REAL-TIME VISIBILITY
+  log_every_n_steps: 10                  # FLUSH EVERY STEP FOR REAL-TIME VISIBILITY
   # Set to "wandb" for Weights & Biases, "tensorboard" for TensorBoard
   logger:  "tensorboard"
   run_name: "llmjepa_sr_base"
