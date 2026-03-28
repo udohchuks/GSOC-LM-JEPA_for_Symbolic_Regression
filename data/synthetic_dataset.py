@@ -1061,6 +1061,12 @@ def build_synthetic_dataloader(
                              cache_dir=target_dir, chunk_size=10000)
             dataset = LazySyntheticDataset(target_dir, max_n_vars=max_n_vars, n_rows=n_rows)
 
+    if len(dataset) == 0:
+        raise RuntimeError(
+            f"Dataset at {cache_path} is empty! Please ensure generation has "
+            "completed at least one chunk, or clear the cache if files are corrupted."
+        )
+
     return DataLoader(
         dataset,
         batch_size=batch_size,

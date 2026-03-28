@@ -15,9 +15,9 @@ data:
   n_data_points:   2000              # rows per synthetic equation
 
   # DataLoader
-  n_rows:      400                   # rows subsampled per equation per step
+  n_rows:      200                   # rows subsampled per equation per step
   max_n_vars:  9                     # variable padding size
-  batch_size:  128
+  batch_size:  32
   num_workers: 1
   chunk_size:  1000
 
@@ -48,7 +48,7 @@ loss:
   lambda_lm:     1.0                 # LM cross-entropy weight
   lambda_units:  1.0                 # unit prediction weight
   alpha_lm:      2.0                 # penalty for invalid RPN tokens
-  num_slices:    1024                  # SIGReg slicing projections
+  num_slices:    512                  # SIGReg slicing projections
   num_points:    17                   # SIGReg Epps-Pulley test points
 
 # ── Training ──────────────────────────────────────────────────────────────────
