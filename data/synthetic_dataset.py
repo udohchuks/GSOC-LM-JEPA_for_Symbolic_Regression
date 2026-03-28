@@ -954,10 +954,15 @@ def _generate_corpus(
                     rate = prog / n_attempted * 100
                     print(f"  {prog}/{n_equations} | attempts: {n_attempted} | yield: {rate:.1f}%")
             
-                # Incremental Save
+                # Atomic Incremental Save
                 if cache_dir and len(equations) >= chunk_size:
                     part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
-                    torch.save(equations, part_path)
+                    # Atomic write: save to tmp and rename
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix='.pt') as tmp:
+                        torch.save(equations, tmp.name)
+                    Path(tmp.name).replace(part_path)
+                    
                     equations = [] # Clear RAM!
                     chunk_count += 1
             
@@ -967,8 +972,10 @@ def _generate_corpus(
         # Save remainder
         if cache_dir and equations:
             part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
-            torch.save(equations, part_path)
-            # Note: No need to clear here, we're about to exit and return None/equations
+            import tempfile
+            with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix='.pt') as tmp:
+                torch.save(equations, tmp.name)
+            Path(tmp.name).replace(part_path)
         
         if pbar:
             pbar.close()
