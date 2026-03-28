@@ -815,16 +815,45 @@ class LazySyntheticDataset(Dataset):
         Safe to call between training epochs to pick up new data.
         """
         import torch
+        import os
         from pathlib import Path
         
+        prev_total = self.total_size
+
         if not self.cache_dir.exists():
             return 0
 
-        prev_total = self.total_size
+        # ── 1. Manifest-Based Instant Startup ────────────────────────────────
+        manifest_path = self.cache_dir / "metadata_manifest.pt"
+        if manifest_path.exists():
+            try:
+                manifest = torch.load(manifest_path, weights_only=True)
+                # Ensure all files in manifest still exist
+                valid_files = []
+                valid_sizes = []
+                running_total = 0
+                for f_name, size in zip(manifest['files'], manifest['sizes']):
+                    fp = self.cache_dir / f_name
+                    if fp.exists():
+                        valid_files.append(fp)
+                        valid_sizes.append(size)
+                        self.all_files_seen.add(fp)
+                        self.file_offsets.append(running_total)
+                        self.file_sizes.append(size)
+                        running_total += size
+                
+                self.part_files = valid_files
+                self.total_size = running_total
+                
+                # Check for new files not yet in manifest
+                all_current = set(self.cache_dir.glob("part_*.pt"))
+                if all_current.issubset(self.all_files_seen):
+                    return self.total_size - prev_total
+            except Exception as e:
+                print(f"  Warning: Manifest error: {e}")
 
-        # Discover all part files and sort them numerically by index (part_0.pt, part_1.pt, etc)
+        # ── 2. Slow Scan Fallback ────────────────────────────────────────────
         if self.cache_dir.is_file():
-            # Support single-file caches (e.g., mini_verify.pt)
             current_files = [self.cache_dir]
         else:
             current_files = sorted(
@@ -832,41 +861,34 @@ class LazySyntheticDataset(Dataset):
                 key=lambda x: int(x.stem.split('_')[1]) if '_' in x.stem else 0
             )
         
-        # Only add files we haven't indexed yet
         new_files = [f for f in current_files if f not in self.all_files_seen]
-        
         if new_files:
             for pf in new_files:
-                # CHECK: Skip files that are empty or suspiciously small (< 1KB)
-                import os
-                if os.path.exists(pf) and os.path.getsize(pf) < 1024:
-                    continue
-
+                if os.path.exists(pf) and os.path.getsize(pf) < 1024: continue
                 try:
-                    # We load each part to build the global index map
                     data = torch.load(pf, weights_only=False)
                     size = len(data)
-                    
-                    if size == 0:
-                        continue
-                        
+                    if size == 0: continue
                     self.all_files_seen.add(pf)
                     self.part_files.append(pf)
                     self.file_offsets.append(self.total_size)
                     self.file_sizes.append(size)
                     self.total_size += size
-                    
-                    del data # free memory
-                    import gc
-                    gc.collect()
-                except Exception as e:
-                    # If file is still being written or corrupted, skip it for now
-                    print(f"  Warning: Skipping {pf.name} (likely incomplete/corrupted): {e}")
-                    break
+                    del data
+                except: break
             
-            print(f"Dataset Refresh: Total equations now {self.total_size}")
-            return self.total_size - prev_total
-        return 0
+            # Save manifest for next time
+            try:
+                torch.save({
+                    'files': [f.name for f in self.part_files],
+                    'sizes': self.file_sizes,
+                    'total_size': self.total_size,
+                    'offsets': self.file_offsets
+                }, manifest_path)
+            except: pass
+            
+        print(f"Dataset Refresh: Total equations now {self.total_size}")
+        return self.total_size - prev_total
 
     def __len__(self) -> int:
         return self.total_size

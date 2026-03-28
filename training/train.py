@@ -155,9 +155,11 @@ def main():
         invalid_weight=cfg_loss.get('alpha_lm', 2.0),
     )
 
-    # Dynamic run name based on dataset size and key hyperparams
+    # Dynamic run name (now near-instant thanks to metadata manifest)
+    from datetime import datetime
     n_k = len(full_dataset) // 1000
-    default_name = f"llmjepa_{n_k}k_eqs_d{D_MODEL}_bs{BATCH_SIZE}"
+    timestamp = datetime.now().strftime("%m%d_%H%M")
+    default_name = f"llmjepa_{n_k}k_eqs_{timestamp}"
     run_name = cfg_log.get('run_name', default_name)
     
     logger = TensorBoardLogger(
