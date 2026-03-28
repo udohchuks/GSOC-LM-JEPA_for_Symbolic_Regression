@@ -1,7 +1,7 @@
 # Smoke Test Configuration
 # Fast local validation (1 epoch, CPU)
 data:
-  synthetic_cache: "cache/smoke_test.pt"
+  synthetic_cache: "cache/smoke_test"
   n_synthetic:     5000
   n_data_points:   100
   batch_size:      4

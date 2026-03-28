@@ -88,7 +88,7 @@ def main():
     full_synthetic_loader = build_synthetic_dataloader(
         n_equations=N_SYNTHETIC,
         batch_size=BATCH_SIZE,
-        cache_path=cfg_data.get('synthetic_cache', 'cache/synthetic_10k.pt'),
+        cache_path=cfg_data.get('synthetic_cache', 'cache/synthetic_1M'),
         n_data_points=cfg_data.get('n_data_points', 1000),
         max_n_vars=MAX_N_VARS,
         num_workers=NUM_WORKERS,
