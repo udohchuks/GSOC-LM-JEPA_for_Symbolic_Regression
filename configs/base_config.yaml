@@ -19,6 +19,7 @@ data:
   max_n_vars:  9                     # variable padding size
   batch_size:  128
   num_workers: 1
+  chunk_size:  1000
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
