@@ -718,9 +718,11 @@ class SyntheticDataset(Dataset):
         self,
         equations:  List[SyntheticEquation],
         max_n_vars: int = 9,
+        n_rows:     int = 400,
     ):
         self.equations  = equations
         self.max_n_vars = max_n_vars
+        self.n_rows     = n_rows
 
     def __len__(self) -> int:
         return len(self.equations)
@@ -729,9 +731,14 @@ class SyntheticDataset(Dataset):
         eq     = self.equations[idx]
         n_vars = eq.n_vars
 
-        X_bits = eq.X_bits   # [N, n_vars, 16] (uint8)
-        # We cast to float32 only at the end using .float() for PyTorch
+        X_bits = eq.X_bits   # [N, n_vars, 16] (uint8/uint16 encoded)
+        N      = X_bits.shape[0]
 
+        # ── Subsample rows ────────────────────────────────────────────────
+        if N > self.n_rows:
+            row_idx  = np.random.choice(N, self.n_rows, replace=False)
+            X_bits   = X_bits[row_idx]
+        
         # Pad variable dimension to max_n_vars
         pad_vars = self.max_n_vars - n_vars
         if pad_vars > 0:
@@ -769,10 +776,11 @@ class LazySyntheticDataset(Dataset):
     Instead of loading all equations into RAM, it loads them from multiple
     chunk files (.pt) on demand. Uses a small cache to avoid redundant loads.
     """
-    def __init__(self, cache_dir: str, max_n_vars: int = 9):
+    def __init__(self, cache_dir: str, max_n_vars: int = 9, n_rows: int = 400):
         from pathlib import Path
         self.cache_dir = Path(cache_dir)
         self.max_n_vars = max_n_vars
+        self.n_rows     = n_rows
         
         # Build index map: which global index belongs to which file
         self.all_files_seen = set()
@@ -842,7 +850,11 @@ class LazySyntheticDataset(Dataset):
             # print(f"Loading cache chunk {file_idx}...")
             equations = torch.load(self.part_files[file_idx], weights_only=False)
             # Reuse the formatting logic from SyntheticDataset
-            self.chunk_cache[file_idx] = SyntheticDataset(equations, max_n_vars=self.max_n_vars)
+            self.chunk_cache[file_idx] = SyntheticDataset(
+                equations, 
+                max_n_vars=self.max_n_vars,
+                n_rows=self.n_rows
+            )
             
         return self.chunk_cache[file_idx][inner_idx]
 
@@ -963,6 +975,7 @@ def _generate_corpus(
 def build_synthetic_dataloader(
     n_equations:   int,
     batch_size:    int = 32,
+    n_rows:        int = 400,
     n_data_points: int = 1000,
     max_n_vars:    int = 9,
     num_workers:   int = 2,
@@ -1003,12 +1016,12 @@ def build_synthetic_dataloader(
     if cache_path and Path(cache_path).exists():
         if Path(cache_path).is_dir():
             print(f"Initializing Lazy (disk-backed) dataset from {cache_path}")
-            dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
+            dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars, n_rows=n_rows)
         else:
             print(f"Loading cached synthetic data from {cache_path}")
             equations = torch.load(cache_path, weights_only=False)
             print(f"Loaded {len(equations)} equations")
-            dataset = SyntheticDataset(equations, max_n_vars=max_n_vars)
+            dataset = SyntheticDataset(equations, max_n_vars=max_n_vars, n_rows=n_rows)
     else:
         # Generation path
         if not generate:
@@ -1016,7 +1029,9 @@ def build_synthetic_dataloader(
                  # Handle case where directory exists but we arrived here (shouldn't happen with 959 logic)
                  dataset = LazySyntheticDataset(cache_path, max_n_vars=max_n_vars)
             else:
+                abs_path = Path(cache_path).absolute()
                 raise FileNotFoundError(f"No cached synthetic data found at {cache_path} "
+                                        f"(Absolute path: {abs_path}) "
                                         f"and generation is disabled.")
 
         print(f"Generating {n_equations} synthetic equations...")
@@ -1027,14 +1042,14 @@ def build_synthetic_dataloader(
                 Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
                 torch.save(equations, cache_path)
                 print(f"Cached to {cache_path}")
-            dataset = SyntheticDataset(equations, max_n_vars=max_n_vars)
+            dataset = SyntheticDataset(equations, max_n_vars=max_n_vars, n_rows=n_rows)
         else:
             # Large scale: save to chunks directly
             # Use cache_dir (stripped of .pt) for directory-based storage
             target_dir = cache_dir if cache_dir else cache_path
             _generate_corpus(n_equations, n_data_points, num_workers=num_workers, 
                              cache_dir=target_dir, chunk_size=10000)
-            dataset = LazySyntheticDataset(target_dir, max_n_vars=max_n_vars)
+            dataset = LazySyntheticDataset(target_dir, max_n_vars=max_n_vars, n_rows=n_rows)
 
     return DataLoader(
         dataset,
@@ -1113,9 +1128,10 @@ if __name__ == '__main__':
                  if eq is not None][:5]
 
     if equations:
-        dataset = SyntheticDataset(equations, max_n_vars=9)
+        n_test_rows = 50
+        dataset = SyntheticDataset(equations, max_n_vars=9, n_rows=n_test_rows)
         item    = dataset[0]
-        assert item['X_bits'].shape    == (100, 9, 16)
+        assert item['X_bits'].shape    == (n_test_rows, 9, 16)
         assert item['var_mask'].shape  == (9,)
         assert item['token_ids'].shape == (MAX_SEQ_LEN,)
         print('Dataset __getitem__: OK')
@@ -1123,7 +1139,7 @@ if __name__ == '__main__':
         loader = DataLoader(dataset, batch_size=2,
                             collate_fn=collate_fn, num_workers=0)
         batch  = next(iter(loader))
-        assert batch['X_bits'].shape   == (2, 100, 9, 16)
+        assert batch['X_bits'].shape   == (2, n_test_rows, 9, 16)
         assert batch['token_ids'].shape == (2, MAX_SEQ_LEN)
         print('DataLoader batch: OK')
 
