@@ -16,6 +16,8 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+import os
+from pathlib import Path
 from torch.utils.data import DataLoader, random_split
 
 from training.trainer import LLMJEPAModule
@@ -200,9 +202,18 @@ def main():
     )
 
     # ── 6. Train ─────────────────────────────────────────────────────────────
-    print(f"Starting training. Logs at: {logger.log_dir}")
+    # Auto-resume from last checkpoint if it exists
+    ckpt_dir = cfg_ckpt.get('dirpath', 'checkpoints/')
+    last_ckpt_path = Path(ckpt_dir) / "last.ckpt"
+    resume_path = str(last_ckpt_path) if last_ckpt_path.exists() else None
+    
+    if resume_path:
+        print(f"Resuming training from: {resume_path}")
+    else:
+        print(f"Starting fresh training. Logs at: {logger.log_dir}")
+        
     print("SIGReg mode: Both encoders trainable, NO EMA updates")
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=resume_path)
 
     print("Training complete. Best checkpoint saved.")
 
