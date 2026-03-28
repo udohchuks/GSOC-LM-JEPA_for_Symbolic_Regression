@@ -34,7 +34,7 @@ def main():
 
     # Verify Checkpoint
     if not os.path.exists(args.ckpt):
-        print(f"❌ Error: Checkpoint not found at {args.ckpt}")
+        print(f"Error: Checkpoint not found at {args.ckpt}")
         return
 
     # Initialize Evaluator
@@ -49,7 +49,7 @@ def main():
         print(f"📈 Running full AI Feynman evaluation using {args.ckpt}...")
         metrics = evaluator.run_evaluation(output_dir=args.output_dir, verbose=True)
         print_results(metrics)
-        print(f"✅ Full report saved to: {args.output_dir}/evaluation_report.md")
+        print(f"Full report saved to: {args.output_dir}/evaluation_report.md")
 
     elif args.mode == "predict":
         # Run Single Prediction
@@ -63,7 +63,7 @@ def main():
             print(f"RPN Tokens:   {' '.join(sample['tokens'])}")
             print(f"Exact:        {sample['exact']}")
         else:
-            print(f"❌ Could not find equation {args.id} in dataset.")
+            print(f"Error: Could not find equation {args.id} in dataset.")
 
 if __name__ == '__main__':
     main()
