@@ -11,6 +11,7 @@ import argparse
 from pathlib import Path
 from models.evaluator import ModelEvaluator
 from evaluation.evaluate import print_results
+import torch
 
 def main():
     parser = argparse.ArgumentParser(
