@@ -17,6 +17,7 @@ from training.trainer import LLMJEPAModule
 from inference.generate import InferenceModel
 from data.aif_dataset import build_aif_dataloader
 from evaluation.evaluate import evaluate_dataset, print_results
+from evaluation.metrics import verify_exact
 from data.tokenizer import decode_formula, rpn_to_sympy, VOCAB_SIZE, MAX_SEQ_LEN
 
 def load_inference_model(config_path: str, ckpt_path: str, device: str) -> InferenceModel:
@@ -163,11 +164,15 @@ class ModelEvaluator:
                 except:
                     pred_str = "Error parsing RPN"
                     
+                # Check for exact recovery
+                exact = verify_exact(pred_str, eq.formula_str, eq.var_names)
+                
                 return {
                     'id': eq_id,
                     'gt': eq.formula_str,
                     'pred': pred_str,
-                    'tokens': tokens
+                    'tokens': tokens,
+                    'exact': exact
                 }
         return None
 

@@ -280,7 +280,13 @@ def _test_data_efficiency(
 
             # Re-encode and generate for the subsampled data
             from data.utils import to_ieee754_16bit
-            X_bits_sub = to_ieee754_16bit(X_sub)
+            X_bits_compact = to_ieee754_16bit(X_sub)
+            
+            # Unpack compact bits to [N, n_vars, 16]
+            nr, nv = X_bits_compact.shape
+            X_bits_sub = X_bits_compact.view(np.uint8).reshape(nr, nv, 2)
+            X_bits_sub = np.unpackbits(X_bits_sub, axis=-1, bitorder='big').reshape(nr, nv, 16)
+            
             X_t = torch.from_numpy(X_bits_sub).float().unsqueeze(0).to(device)
 
             unit_idx = torch.from_numpy(eq.unit_matrix_idx).long().unsqueeze(0).to(device)
@@ -391,7 +397,14 @@ def _prepare_model_inputs(eq, model, device):
     """Prepare padded tensor inputs for the model from a PreprocessedEquation."""
     import torch
 
-    X_t = torch.from_numpy(eq.X_bits).float().unsqueeze(0).to(device)
+    X_bits = eq.X_bits
+    if X_bits.ndim == 2:
+        # Unpack compact bits [N, n_vars] -> [N, n_vars, 16]
+        nr, nv = X_bits.shape
+        X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
+        X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big').reshape(nr, nv, 16)
+
+    X_t = torch.from_numpy(X_bits).float().unsqueeze(0).to(device)
     unit_idx = torch.from_numpy(eq.unit_matrix_idx).long().unsqueeze(0).to(device)
 
     max_n = model.max_n_vars
