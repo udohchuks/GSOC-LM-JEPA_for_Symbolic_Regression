@@ -823,6 +823,11 @@ class LazySyntheticDataset(Dataset):
         
         if new_files:
             for pf in new_files:
+                # CHECK: Skip files that are empty or suspiciously small (< 1KB)
+                import os
+                if os.path.exists(pf) and os.path.getsize(pf) < 1024:
+                    continue
+
                 try:
                     # We load each part to build the global index map
                     data = torch.load(pf, weights_only=False)
@@ -979,6 +984,10 @@ def _generate_corpus(
                     torch.save(equations, str(tmp_path))
                     tmp_path.replace(part_path)
                     
+                    # Cooldown for filesystem sync (especially on cloud storage)
+                    import time
+                    time.sleep(1.0)
+                    
                     equations = [] # Clear RAM!
                     chunk_count += 1
             
@@ -1003,6 +1012,15 @@ def _generate_corpus(
     return equations if not cache_dir else None
 
 
+def seed_worker(worker_id):
+    """Ensures each worker has a unique random seed."""
+    import torch
+    import numpy as np
+    import random
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
 
 def build_synthetic_dataloader(
     n_equations:   int,
@@ -1013,6 +1031,7 @@ def build_synthetic_dataloader(
     num_workers:   int = 2,
     cache_path:    Optional[str] = None,
     generate:      bool = True,
+    chunk_size:    int = 2000,
 ) -> DataLoader:
     """
     Build DataLoader for synthetic pretraining data.
@@ -1080,7 +1099,7 @@ def build_synthetic_dataloader(
             # Use cache_dir (stripped of .pt) for directory-based storage
             target_dir = cache_dir if cache_dir else cache_path
             _generate_corpus(n_equations, n_data_points, num_workers=num_workers, 
-                             cache_dir=target_dir, chunk_size=10000)
+                             cache_dir=target_dir, chunk_size=chunk_size)
             dataset = LazySyntheticDataset(target_dir, max_n_vars=max_n_vars, n_rows=n_rows)
 
     if len(dataset) == 0:
@@ -1096,7 +1115,8 @@ def build_synthetic_dataloader(
         num_workers=num_workers,
         collate_fn=collate_fn,
         pin_memory=True,
-        persistent_workers=(num_workers > 0),
+        worker_init_fn=seed_worker,
+        persistent_workers=False,
     )
 
 
@@ -1175,7 +1195,9 @@ if __name__ == '__main__':
         print('Dataset __getitem__: OK')
 
         loader = DataLoader(dataset, batch_size=2,
-                            collate_fn=collate_fn, num_workers=0)
+                            collate_fn=collate_fn, 
+                            num_workers=4,
+                            worker_init_fn=seed_worker)
         batch  = next(iter(loader))
         assert batch['X_bits'].shape   == (2, n_test_rows, 9, 16)
         assert batch['token_ids'].shape == (2, MAX_SEQ_LEN)

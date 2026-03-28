@@ -25,6 +25,10 @@ from data.aif_dataset import build_aif_dataloader
 from data.synthetic_dataset import build_synthetic_dataloader, LazySyntheticDataset
 
 
+# Enable Tensor Core utilization on NVIDIA GPUs (A100, H100, L4, etc.)
+torch.set_float32_matmul_precision('medium')
+
+
 class RefreshDatasetCallback(pl.Callback):
     """
     Refreshes the dataset at the start of each epoch.
@@ -97,6 +101,7 @@ def main():
         max_n_vars=MAX_N_VARS,
         num_workers=NUM_WORKERS,
         generate=False,
+        chunk_size=cfg_data.get('chunk_size', 2000),
     )
 
     # Split synthetic into 90% train / 10% val

@@ -80,4 +80,4 @@ hardware:
   accelerator:  "gpu"               # "cpu" for testing
   devices:      1                   # 1 for Colab, 8 for Cloud
   strategy:     "auto"              # "ddp" for multi-GPU
-  precision:    "16-mixed"          # mixed precision for speed
+  precision:    "bf16-mixed"          # bf16 for stability on L4/A100
