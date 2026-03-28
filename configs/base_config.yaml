@@ -60,7 +60,7 @@ training:
   warmup_steps:  5000
   use_synthetic: true               # true = pretrain on synthetic data
   gradient_clip: 1.0                 # gradient clipping value
-  val_check_interval: 50             # Validate every 50 steps for high-frequency monitoring
+  val_check_interval: 200             # Validate every 50 steps for high-frequency monitoring
   limit_val_batches: 0.05             # Check ~5,000 equations (5%) for speed
 
 # ── Logging ───────────────────────────────────────────────────────────────────
