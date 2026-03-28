@@ -56,7 +56,7 @@ class InferenceModel(nn.Module):
             n_layers=n_decoder_layers,
             vocab_size=vocab_size,
             max_seq_len=max_seq_len,
-            z_dropout=0.0,  # No dropout at inference
+            dropout=0.0,  # No dropout at inference
         )
 
     def forward(
@@ -65,7 +65,16 @@ class InferenceModel(nn.Module):
         unit_idx:  torch.Tensor,
         var_mask:  torch.Tensor,
     ) -> torch.Tensor:
-        """Encode data to z_context."""
+        """Alias for encode() to maintain standard nn.Module call syntax."""
+        return self.encode(X_bits, unit_idx, var_mask)
+
+    def encode(
+        self,
+        X_bits:    torch.Tensor,
+        unit_idx:  torch.Tensor,
+        var_mask:  torch.Tensor,
+    ) -> torch.Tensor:
+        """Encode data table to z_context latent vector."""
         data_emb = self.data_embedder(X_bits)
         unit_emb = self.unit_embedder(unit_idx)
         z_context, _ = self.context_encoder(data_emb, unit_emb, var_mask)
