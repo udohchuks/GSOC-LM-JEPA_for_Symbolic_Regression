@@ -90,6 +90,8 @@ def _failed_result(eq) -> dict:
         'noise_r2': {eps: -np.inf for eps in NOISE_LEVELS},
         'data_size_r2': {n: -np.inf for n in DATA_SIZES},
         'extrap_r2': -np.inf,
+        'tokens': [],
+        'predicted': None,
     }
 
 
@@ -426,6 +428,12 @@ def _reconstruct_X(eq) -> np.ndarray:
     """
     Reconstruct approximate float X from IEEE-754 bits.
     """
+    # 1. Handle compact uint16 bit-packed representation [N, n_vars]
+    # Each uint16 maps directly to a 16-bit float view
+    if eq.X_bits.ndim == 2:
+        return eq.X_bits.view(np.float16).astype(np.float32)
+
+    # 2. Fallback for unpacked bits [N, n_vars, 16] (legacy or debugging)
     bits = eq.X_bits.astype(np.uint8)
     uint8 = np.packbits(bits.reshape(-1, 16), axis=-1)
     uint16 = uint8.view(np.uint16)
