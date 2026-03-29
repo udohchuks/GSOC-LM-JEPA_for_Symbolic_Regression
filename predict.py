@@ -44,7 +44,7 @@ def main():
 
     if args.mode == "predict":
         # Run Single Prediction
-        print(f"🎯 Predicting equation: {args.id}...")
+        print(f"Predicting equation: {args.id}...")
         sample = evaluator.predict_sample_by_id(
             args.id, 
             n_candidates=args.n_candidates,
@@ -63,7 +63,7 @@ def main():
 
     elif args.mode == "eval":
         # Run Full AIF Evaluation
-        print(f"📈 Running full AI Feynman evaluation...")
+        print(f"Running full AI Feynman evaluation...")
         metrics = evaluator.run_evaluation(
             output_dir=args.output_dir, 
             verbose=True, 

@@ -8,7 +8,8 @@ A Joint Embedding Predictive Architecture (JEPA) for Symbolic Regression. Parses
 - **Unit-Validated Decoding** — Masks invalid tokens based on RPN stack depth and dimensional analysis
 - **SIGReg Collapse Prevention** — No EMA needed; both encoders are trainable
 - **Memory-Optimized Pipeline** — `uint8` bit-storage and 10k-chunk incremental saving for 1M+ scales
-- **Decoupled Generation** — Parallel data generation and training with dynamic dataset refreshing
+- **Robust Constant Fitting** — SciPy-based BFGS optimizer handles `c1`..`c5` placeholders for precise numerical alignment
+- **Candidate Sampling** — Explores top-N skeletons via temperature-based decoding to maximize exact recovery rate
 - **Comprehensive Evaluation** — Noise tolerance, data efficiency, extrapolation, complexity analysis
 
 ---
@@ -98,20 +99,27 @@ Run inference on a trained checkpoint to generate symbolic formulas.
 The CSV should have variable columns followed by a target column (last column = output):
 
 ```bash
-python predict.py --ckpt checkpoints/last.ckpt --csv path/to/your/data.csv
+python predict.py --ckpt checkpoints/last.ckpt --csv path/to/your/data.csv --n_candidates 10
 ```
 
 ### From an AI Feynman equation
 
 ```bash
-python predict.py --ckpt checkpoints/last.ckpt --eq_id I.6.2a
+python predict.py --ckpt checkpoints/last.ckpt --id I.6.2a --n_candidates 10
 ```
 
 **Example output:**
 ```
-Found equation I.6.2a: Ground truth is exp(-theta**2/2)/sqrt(2*pi)
-Generated RPN Tokens: x1 sq neg 2 / exp pi 2 * sqrt inv *
-SymPy Expression: exp(-x1**2/2)/sqrt(2*pi)
+🎯 Predicting equation: I.6.2a...
+Fitting constants for 4 unique candidates...
+
+--- Prediction Result ---
+ID:           I.6.2a
+Ground Truth: exp(-theta**2/2)/sqrt(2*pi)
+Prediction:   exp(-0.5*theta**2)/sqrt(2.0*pi)
+MSE:          0.000000
+RPN Tokens:   theta 2 pow 2 / neg exp 2 pi * sqrt 1 swap / *
+Exact:        True
 ```
 
 ---
@@ -130,7 +138,9 @@ python run_eval.py --ckpt checkpoints/last.ckpt
 |---|---|---|
 | `--config` | `configs/base_config.yaml` | Config file path |
 | `--ckpt` | *(required)* | Checkpoint path |
-| `--output` | `results/eval_results.json` | Output JSON file |
+| `--output_dir` | `results` | Directory to save reports |
+| `--n_candidates` | 1 | Number of candidates to sample (use 10-20 for best results) |
+| `--temperature` | 0.8 | Sampling variance for candidate generation |
 | `--n_restarts` | 3 | BFGS optimisation restarts |
 
 **Metrics computed:**

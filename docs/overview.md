@@ -54,13 +54,19 @@ Input: X [observations × variables], units for each variable
 
          z_context
               ↓
-    ┌─────────────────────────────────────┐
-    │  RPNDecoder (autoregressive)         │
-    │  Generates formula token by token    │
-    │  Validity mask blocks bad tokens     │
-    │  → token logits → formula string    │
-    └─────────────────────────────────────┘
-
+    ┌──────────────────────────────────────────┐
+    │  RPNDecoder (Sampling N candidates)      │
+    │  Generates multiple formula skeletons    │
+    │  Deduplicates unique structures          │
+    │  → z_hat → token logits → RPN candidates │
+    └──────────────────┬───────────────────────┘
+                       ↓
+    ┌──────────────────────────────────────────┐
+    │  SciPy BFGS Optimizer                    │
+    │  Fits c1..c5 to minimize MSE             │
+    │  Selects best candidate expression       │
+    └──────────────────┬───────────────────────┘
+                       ↓
 Output: "x1 x2 * x3 +" → sympy.parse → F = x1*x2 + x3
 ```
 
@@ -74,7 +80,8 @@ Output: "x1 x2 * x3 +" → sympy.parse → F = x1*x2 + x3
 | **RPN (postfix) notation** | Parenthesis-free, stack-checkable grammar. Validity of any token can be determined in O(1) from the stack depth alone — no parser needed. |
 | **SIGReg instead of EMA** | Standard JEPA uses an Exponential Moving Average (EMA) teacher to prevent representational collapse. SIGReg (LeJEPA) instead constrains embeddings to be isotropic Gaussian, allowing both encoders to be fully trainable. Simpler, no momentum hyperparameter. |
 | **Unit dimensional analysis** | Physics formulas are dimensionally consistent. The model encodes SI units (mass, length, time, current, temperature) for every variable and token. Unit violations are penalised during training and can be checked at inference. |
-| **BFGS post-processing** | Numerical constants (e.g. `2.718`, `9.81`) are represented as placeholder tokens (`c1`...`c5`) during generation, then fitted to data with L-BFGS-B after generation. This cleanly separates symbolic structure from numerical optimisation. |
+| **BFGS Post-processing** | Numerical constants (e.g. `2.718`, `9.81`) are represented as placeholder tokens (`c1`...`c5`) during generation, then fitted to data with SciPy's BFGS optimizer. This cleanly separates symbolic structure from numerical optimization. |
+| **Candidate Sampling** | To maximize recovery, the model can sample N candidates (default 10) using temperature-based decoding. Unique candidates are optimized, and the one with the lowest MSE is selected as the winner. |
 | **ISAB encoder** | Induced Self-Attention Block uses M=32 inducing points. Reduces O(N²) attention to O(N·M) for N data points — critical for tables with thousands of rows. |
 | **Synthetic pretraining + AIF fine-tuning** | Pretraining on physics-informed synthetic equations (dimensionally valid by construction) gives the model a strong prior. The AI Feynman dataset is used for evaluation/fine-tuning. |
 
