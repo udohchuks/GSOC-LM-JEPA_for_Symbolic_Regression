@@ -164,7 +164,7 @@ class PreprocessedEquation:
     def __init__(
         self,
         eq_id:             str,
-        X_bits:            np.ndarray,   # [N, n_vars, 16] IEEE-754
+        X_bits:            np.ndarray,   # [N, n_vars, 16] float16 bit-features
         y:                 np.ndarray,   # [N] raw floats
         unit_matrix_idx:   np.ndarray,   # [n_vars, 5] class indices
         token_ids:         np.ndarray,   # [MAX_SEQ_LEN] padded
@@ -361,13 +361,9 @@ class AIFDataset(Dataset):
         else:
             X_bits   = eq.X_bits
         
-        # ── UNPACK BITS (Compact uint16 format) ──────────────────────────
-        # Each uint16 maps to 16 bits. This reduces RAM usage by 8x.
-        if X_bits.ndim == 2:
-            nr, nv = X_bits.shape
-            X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
-            X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big').reshape(nr, nv, 16)
-        # Result is [n_rows, n_vars, 16]
+        # ── Bit Tensor [n_rows, n_vars, 16] ───────────────────────────────
+        # X_bits is now stored in expanded float16 format in the cache.
+        # No more unpackbits overhead here.
         
         # ── Pad variable dimension to max_n_vars ──────────────────────────
         # Why pad? Tensors in a batch must have identical shapes.
@@ -378,7 +374,7 @@ class AIFDataset(Dataset):
         if pad_vars > 0:
             # Pad X_bits with zeros along variable axis
             pad_x = np.zeros(
-                (X_bits.shape[0], pad_vars, 16), dtype=np.float32
+                (X_bits.shape[0], pad_vars, 16), dtype=np.float16
             )
             X_bits = np.concatenate([X_bits, pad_x], axis=1)
             # shape: [n_rows, max_n_vars, 16]
@@ -398,7 +394,7 @@ class AIFDataset(Dataset):
 
         return {
             # Encoder inputs
-            'X_bits':           torch.from_numpy(X_bits).float(),
+            'X_bits':           torch.from_numpy(X_bits), # [n_rows, max_n_vars, 16] float16
             # [n_rows, max_n_vars, 16]
 
             'unit_idx':         torch.from_numpy(unit_idx).long(),
@@ -608,11 +604,12 @@ if __name__ == '__main__':
     eq = preprocess_equation(metas[0], data_dir, max_rows=500)
     assert eq is not None
     assert eq.X_bits.shape == (500, 1, 16)
+    assert eq.X_bits.dtype == np.float16
     assert eq.unit_matrix_idx.shape == (1, 5)
     assert eq.token_ids.shape == (MAX_SEQ_LEN,)
     assert eq.unit_targets_idx.shape == (MAX_SEQ_LEN, 5)
     assert eq.token_ids[0] == 1   # BOS_IDX
-    print(f'Preprocessing: OK — RPN: {eq.token_ids[:10].tolist()}')
+    print(f'Preprocessing (float16): OK — RPN: {eq.token_ids[:10].tolist()}')
 
     # ── Test 3: Dataset __getitem__ ───────────────────────────────────────
     dataset = AIFDataset([eq], n_rows=50, max_n_vars=9)

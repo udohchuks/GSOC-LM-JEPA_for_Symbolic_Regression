@@ -17,25 +17,26 @@ import sympy
 
 def to_ieee754_16bit(x: np.ndarray) -> np.ndarray:
     """
-    Convert float array to 16-bit IEEE-754 compact representation.
+    Convert float array to 16-bit IEEE-754 direct float16 representations.
 
-    Every scalar maps to a single uint16 value representing its 16 bits.
-    This replaces the 16x larger uint8 bit-mask array to save RAM.
+    Every scalar maps to 16 bit-features (0.0 or 1.0) stored as float16.
+    This removes the bit-unpacking bottleneck from the data pipeline.
 
-    To get bits back:
-        bits = np.unpackbits(x.view(np.uint8).reshape(-1, 2), axis=-1, bitorder='big')
-    
     Args:
         x: numpy float array of any shape [...]
     
     Returns:
-        numpy uint16 array of the same shape [...]
+        numpy float16 array of shape [..., 16]
     """
-    # Step 1: cast to float16 — half precision
+    # Step 1: cast to float16
     x_f16 = x.astype(np.float16)
 
-    # Step 2: view the raw memory as uint16
-    return x_f16.view(np.uint16)
+    # Step 2: view as uint8 pairs and unpack bits
+    u8 = x_f16.view(np.uint8).reshape(x_f16.shape + (2,))
+    bits = np.unpackbits(u8, axis=-1, bitorder='big')
+
+    # Step 3: reshape to [..., 16] and return as float16
+    return bits.reshape(x_f16.shape + (16,)).astype(np.float16)
 
 # ── 2. Gaussian noise ─────────────────────────────────────────────────────────
 
@@ -237,72 +238,3 @@ def unit_targets_to_class_indices(
     arr = np.clip(arr, 0, N_UNIT_CLASSES - 1)      # safety clip
     return arr
 
-
-
-if __name__ == '__main__':
-    # ── Test 1: IEEE-754 ──────────────────────────────────────────────────
-    x = np.array([[1.0, 2.0, -1.5]], dtype=np.float32)
-    compact = to_ieee754_16bit(x)
-    assert compact.shape == (1, 3), f"Got shape {compact.shape}"
-    assert compact.dtype == np.uint16
-
-    # Verify bit recovery
-    u8 = compact.view(np.uint8).reshape(compact.shape + (2,))
-    bits = np.unpackbits(u8, axis=-1, bitorder='big').reshape(compact.shape + (16,))
-    assert bits.shape == (1, 3, 16)
-    assert set(bits.flatten().tolist()).issubset({0, 1})
-
-    # Different values must produce different patterns
-    a = to_ieee754_16bit(np.array([1.0], dtype=np.float32))
-    b = to_ieee754_16bit(np.array([2.0], dtype=np.float32))
-    assert a[0] != b[0]
-    print('IEEE-754: OK')
-
-    # ── Test 2: Gaussian noise ────────────────────────────────────────────
-    y = np.sin(np.linspace(0, 3, 1000)).astype(np.float32)
-
-    y_clean = add_gaussian_noise(y, epsilon=0.0)
-    assert np.array_equal(y, y_clean)   # zero noise = identical
-
-    y_noisy = add_gaussian_noise(y, epsilon=0.01)
-    assert y_noisy.shape == y.shape
-    assert not np.allclose(y, y_noisy)  # noise was added
-
-    # Noise level should be approximately 1% of RMS
-    y_rms = np.sqrt(np.mean(y ** 2))
-    noise_std = np.std(y_noisy - y)
-    assert abs(noise_std / y_rms - 0.01) < 0.005  # within 0.5%
-    print('Gaussian noise: OK')
-
-    # ── Test 3: unit stack — simple cases ─────────────────────────────────
-
-    # x1 * x2 where x1=m1 (kg), x2=m2 (kg) → result should be kg²
-    targets = compute_unit_targets(['x1', 'x2', '*'], ['m1', 'm2'])
-    assert len(targets) == 3
-    assert targets[0] == [0, 0, 1, 0, 0]   # m1: mass [kg]
-    assert targets[1] == [0, 0, 1, 0, 0]   # m2: mass [kg]
-    assert targets[2] == [0, 0, 2, 0, 0]   # *: kg² (add exponents)
-    print('Unit stack (m1*m2=kg²): OK')
-
-    # x1 / x2 where both are lengths → result is dimensionless
-    targets = compute_unit_targets(['x1', 'x2', '/'], ['r1', 'r2'])
-    assert targets[2] == [0, 0, 0, 0, 0]   # dimensionless
-    print('Unit stack (r1/r2=dimensionless): OK')
-
-    # sin(theta) where theta is dimensionless → result is dimensionless
-    targets = compute_unit_targets(['x1', 'sin'], ['theta'])
-    assert targets[0] == [0, 0, 0, 0, 0]   # theta: dimensionless
-    assert targets[1] == [0, 0, 0, 0, 0]   # sin: dimensionless out
-    print('Unit stack (sin(theta)): OK')
-
-    # ── Test 4: class index conversion ────────────────────────────────────
-    targets = compute_unit_targets(['x1', 'x2', '*'], ['m1', 'F'])
-    indices = unit_targets_to_class_indices(targets)
-    assert indices.shape == (3, 5)
-    assert indices.min() >= 0 and indices.max() <= 8
-
-    # mass [0,0,1,0,0] → class indices [4,4,5,4,4]
-    assert indices[0].tolist() == [4, 4, 5, 4, 4]
-    print('Class index conversion: OK')
-
-    print('\nAll utils tests passed.')

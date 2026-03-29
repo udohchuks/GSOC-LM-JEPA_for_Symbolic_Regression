@@ -1,0 +1,93 @@
+# Small Model Configuration for 20k+ Synthetic Equations
+# Target: ~1M parameters, fast training on Colab Free tier
+# Predictor kept minimal to reduce overfitting
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  csv_path:    "data/FeynmanEquations.csv"
+  data_dir:    "data/Feynman_with_units/"
+  cache_dir:   "cache/"
+  
+  # Synthetic data (20k+ equations)
+  synthetic_cache: "cache/synthetic_20k"
+  n_synthetic:     20000                # 20k equations (can go up to 50k)
+  n_data_points:   500                  # Fewer data points per equation
+  num_workers:     4                    # Generation workers
+  
+  # DataLoader
+  n_rows:      100                      # Very small for fast training
+  max_n_vars:  7                        # Reduced padding (vs 9)
+  batch_size:  64                       # Larger batches for stability
+  num_workers: 2                        # DataLoader workers
+  chunk_size:  500                      # Larger chunks (fewer files)
+  max_cache_size: 8                     # Smaller cache (less RAM)
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  # ~1M parameter architecture
+  # Increased from 800K for better performance, still well under 1M target
+  d_model:      56                      # Increased from 48 (more capacity)
+  n_heads:      4                       # Keep 4 heads (attention diversity)
+  n_isab:       2                       # Back to 2 (better set encoding)
+  n_col_attn:   1                       # Keep at 1 (saves params)
+  n_enc_layers: 3                       # Increased from 2 (better encoding)
+  n_dec_layers: 3                       # Increased from 2 (better generation)
+  m_inducing:   20                      # Increased from 16 (better attention)
+  max_n_vars:   7                       # Match data config
+  dropout:      0.15                    # Slightly higher dropout
+
+  # Predictor (JEPA bottleneck) - KEPT SMALL to prevent overfitting
+  predictor:
+    pred_n_heads:          2            # Fewer heads
+    pred_bottleneck_ratio: 0.20         # Even smaller bottleneck (vs 0.25)
+    pred_dropout:          0.25         # Higher dropout for regularization
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  lambda_jepa:   1.0
+  lambda_sigreg: 0.5                    # Increase SIGReg for small data
+  lambda_lm:     1.0
+  lambda_units:  1.0
+  alpha_lm:      2.0
+  num_slices:    128                    # Fewer slices (faster)
+  num_points:    9                      # Fewer Epps-Pulley points
+
+# ── Training ──────────────────────────────────────────────────────────────────
+training:
+  lr:            5e-4                   # Higher LR for small model
+  weight_decay:  1e-2
+  max_epochs:    15                     # More epochs for small data
+  warmup_steps:  500                    # Shorter warmup
+  use_synthetic: true
+  gradient_clip: 1.0
+  val_check_interval: 100               # Validate every 100 steps
+  limit_val_batches: 0.3                # 30% of validation
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  log_every_n_steps: 20
+  logger:  "tensorboard"
+  run_name: "small_20k"
+
+# ── Checkpointing ─────────────────────────────────────────────────────────────
+checkpoint:
+  dirpath: "checkpoints_small/"
+  save_top_k: 3
+  monitor: "val/total"
+  mode: "min"
+  save_last: true
+  save_every_n_steps: 200
+  filename: "small-{step:06d}-{val/total:.4f}"
+
+# ── Inference ─────────────────────────────────────────────────────────────────
+inference:
+  beam_size: 5
+  max_len: 64
+  temperature: 0.7
+
+# ── Hardware ──────────────────────────────────────────────────────────────────
+hardware:
+  accelerator:  "gpu"
+  devices:      1
+  strategy:     "auto"
+  precision:    "16-mixed"              # Mixed precision for speed

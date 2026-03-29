@@ -3,14 +3,59 @@
 A Joint Embedding Predictive Architecture (JEPA) for Symbolic Regression. Parses tabular data into IEEE-754 bit-level embeddings and trains a decoder to generate Reverse Polish Notation (RPN) mathematical formulas, validated by unit-dimensional constraints.
 
 ## Features
-- **IEEE-754 Data Encoding** — Floating-point inputs tokenised at the bit level
+- **Direct float16 bit encoding** — Represents any float as 16 binary features stored as `float16`. Removes `unpackbits` CPU bottleneck during training; data is fed directly to the model as a tensor.
 - **MixEncoder + JEPA** — Predicts formulas in latent space via set-attention and column-attention
 - **Unit-Validated Decoding** — Masks invalid tokens based on RPN stack depth and dimensional analysis
 - **SIGReg Collapse Prevention** — No EMA needed; both encoders are trainable
-- **Memory-Optimized Pipeline** — `uint8` bit-storage and 10k-chunk incremental saving for 1M+ scales
-- **Robust Constant Fitting** — SciPy-based BFGS optimizer handles `c1`..`c5` placeholders for precise numerical alignment
-- **Candidate Sampling** — Explores top-N skeletons via temperature-based decoding to maximize exact recovery rate
-- **Comprehensive Evaluation** — Noise tolerance, data efficiency, extrapolation, complexity analysis
+- **BFGS Post-processing** — Numerical constants (e.g. `2.718`, `9.81`) are represented as placeholder tokens (`c1`...`c5`) during generation, then fitted to data with SciPy's BFGS optimizer (30 iterations). This cleanly separates symbolic structure from numerical optimization.
+- **Beam Sampling & R² Ranking** — Explores top-N skeletons via temperature-based decoding to maximize exact recovery rate
+- **Goldilocks Evaluation Suite** — Comprehensive metrics (R², NED, SA) + noise tolerance and data efficiency tests
+
+---
+
+## 📊 Dataset Documentation
+
+### Synthetic Data Generation
+
+The synthetic data generator creates physics-informed mathematical expressions for pretraining:
+
+- **Dimensional Homogeneity:** Every equation is physically valid (mass, length, time, charge units)
+- **Pattern-Based (80%):** 70 physics equation templates (inverse-square, relativistic, energy, waves, distance)
+- **AI Feynman Match:** Optimized complexity distribution (mean 3.9-4.1 vars vs 4.09 in AIF)
+- **Affine Transformations:** Increases diversity without changing structure
+
+**Configuration Guide:**
+- **20k-50k equations (~1M params, tiny predictor):** Use `configs/small.yaml`
+- **100k+ equations (~3.4M params):** Use `configs/base_config.yaml`
+
+**Full Documentation:** 
+- [`docs/SYNTHETIC_DATA_GENERATION.md`](docs/SYNTHETIC_DATA_GENERATION.md) - Generation details
+- [`docs/SMALL_MODEL_CONFIG.md`](docs/SMALL_MODEL_CONFIG.md) - Model scaling guide
+
+### AI Feynman Comparison
+
+Comprehensive comparison between synthetic pretraining data and AI Feynman evaluation data:
+
+| Metric | Synthetic | AI Feynman | Gap |
+|--------|-----------|------------|-----|
+| Mean Variables | 3.9-4.1 | 4.09 | -5% to 0% |
+| Mean Nodes | 12-14 | 12.47 | -4% to +12% |
+| Mean Depth | 2.9-3.0 | 2.92 | ±0% |
+| Division Freq | 0.20-0.30/eq | 0.4/eq | -25% to -50% |
+| Negation Freq | 0.10-0.15/eq | 0.3/eq | -50% to -67% |
+
+**Pattern Coverage:** 70 physics templates covering inverse-square, relativistic, thermodynamics, waves, electromagnetism
+
+**Full Report:** [`docs/DATA_COMPARISON.md`](docs/DATA_COMPARISON.md)
+
+**Run your own comparison:**
+```bash
+python -m data.compare_datasets \
+    --config configs/base_config.yaml \
+    --output results/data_comparison/ \
+    --n_synthetic 500 \
+    --n_aif 500
+```
 
 ---
 
@@ -18,23 +63,55 @@ A Joint Embedding Predictive Architecture (JEPA) for Symbolic Regression. Parses
 
 | Document | Description |
 |---|---|
-| [Overview](docs/overview.md) | High-level: motivation, architecture diagram, design decisions, usage |
-| [Technical Reference](docs/technical_reference.md) | Detailed: every module, class, design rationale, and implementation decisions |
+| [Overview](docs/overview.md) | High-level: motivation, architecture diagram, design decisions |
+| [Technical Reference](docs/technical_reference.md) | Detailed: every module, class, implementation details |
+| [Synthetic Data Generation](docs/SYNTHETIC_DATA_GENERATION.md) | Physics-informed data generation, AI Feynman comparison |
+| [Dataset Comparison](docs/DATA_COMPARISON.md) | Synthetic vs AI Feynman analysis report |
+| [Small Model Config](docs/SMALL_MODEL_CONFIG.md) | Model scaling guide for <100k equations |
+| [Colab Notebooks](notebooks/README.md) | Google Colab workflow (generate → train → evaluate) |
 
 ---
 
+## 🚀 Google Colab Notebooks
+
+Three ready-to-run Colab notebooks for the complete workflow:
+
+| Notebook | Purpose | Runtime | Duration |
+|----------|---------|---------|----------|
+| [01_generate_synthetic_data.ipynb](notebooks/01_generate_synthetic_data.ipynb) | Generate 1M synthetic equations | T4 GPU | 4-8 hrs |
+| [02_train_model.ipynb](notebooks/02_train_model.ipynb) | Pretrain LLM-JEPA model | T4 GPU | 6-12 hrs |
+| [03_evaluate_model.ipynb](notebooks/03_evaluate_model.ipynb) | Evaluate on AI Feynman | T4 GPU | 1-2 hrs |
+
+**Quick Start:**
+1. Open any notebook in Colab
+2. Runtime → Change runtime type → GPU (T4)
+3. Run cells in order (dependency checks included)
+4. All outputs saved to Google Drive (`SymbolicRegression/` folder)
+
+**Full Guide:** [`notebooks/README.md`](notebooks/README.md)
+
+---
+
+## Installation
 
 ```bash
-git clone https://github.com/your-username/GSOC-LM-JEPA_for_Symbolic_Regression.git
+git clone https://github.com/chukwueke/GSOC-LM-JEPA_for_Symbolic_Regression.git
 cd GSOC-LM-JEPA_for_Symbolic_Regression
 pip install -r requirements.txt
 ```
 
-### 2. Download Dataset
+### Download AI Feynman Dataset
 
-Download the AI Feynman dataset with units:
+Download from Dropbox (4.1 GB):
 
 ```bash
+# Using wget
+wget -O Feynman_with_units.tar.gz "https://www.dropbox.com/s/7kgfr00qpokgz8w/Feynman_with_units.tar.gz?dl=1"
+
+# Or using curl
+curl -L -o Feynman_with_units.tar.gz "https://www.dropbox.com/s/7kgfr00qpokgz8w/Feynman_with_units.tar.gz?dl=1"
+
+# Extract to data/
 python -c "import tarfile; tar = tarfile.open('Feynman_with_units.tar.gz'); tar.extractall('data/'); tar.close()"
 ```
 
@@ -44,8 +121,19 @@ python -c "import tarfile; tar = tarfile.open('Feynman_with_units.tar.gz'); tar.
 
 
 
-### 1. Generate Synthetic Data
-Large-scale pretraining requires a synthetic corpus. You can generate this separately or in parallel with training:
+## Data Generation
+
+Large-scale pretraining requires a synthetic corpus of mathematically valid and physically motivated equations. The `data.synthetic_dataset` generator produces these through a **Physics-Informed** pipeline:
+
+- **Dimensional Homogeneity**: Variables are sampled from physical domains (Mechanics, EM, etc.). Operators (like `sin` or `+`) are only applied if they are dimensionally consistent—preventing invalid operations like adding "meters" to "kilograms".
+- **Tree & Pattern Generation**: Uses a 50/50 mix of recursive tree growth (peak depth 4) and expert physics patterns (22+ templates) to ensure structural diversity.
+- **V4 Tuning**: Biased toward 3–6 variables and tree depths of 4–5 to perfectly match the complexity distribution of the AI Feynman dataset.
+- **Float16 Bit-Featurization**: Inputs are encoded into IEEE-754 bit patterns and stored as direct `float16` tensors, removing CPU-bound `unpackbits` overhead during training.
+- **Lazy Sharding**: Equations are stored in sharded `.pt` parts, allowing for 1M+ scales without RAM exhaustion via `LazySyntheticDataset`.
+
+### 1. Generate Synthetic Corpus
+
+You can generate the pretraining data separately or in parallel with training:
 
 ```bash
 # Generate 1M equations (configured in base_config.yaml)
@@ -90,9 +178,13 @@ tensorboard --logdir tb_logs
 
 ---
 
-## Inference
+Run inference on a trained checkpoint to generate symbolic formulas. The model uses **Beam Sampling** (multiple candidates) and **R² Ranking** to select the best formula.
 
-Run inference on a trained checkpoint to generate symbolic formulas.
+### From the AI Feynman dataset
+
+```bash
+python predict.py --ckpt checkpoints/last.ckpt --id I.6.2a --n_candidates 10 --temperature 0.1
+```
 
 ### From a custom CSV file
 
@@ -100,12 +192,6 @@ The CSV should have variable columns followed by a target column (last column = 
 
 ```bash
 python predict.py --ckpt checkpoints/last.ckpt --csv path/to/your/data.csv --n_candidates 10
-```
-
-### From an AI Feynman equation
-
-```bash
-python predict.py --ckpt checkpoints/last.ckpt --id I.6.2a --n_candidates 10
 ```
 
 **Example output:**
@@ -117,19 +203,19 @@ Fitting constants for 4 unique candidates...
 ID:           I.6.2a
 Ground Truth: exp(-theta**2/2)/sqrt(2*pi)
 Prediction:   exp(-0.5*theta**2)/sqrt(2.0*pi)
-MSE:          0.000000
-RPN Tokens:   theta 2 pow 2 / neg exp 2 pi * sqrt 1 swap / *
-Exact:        True
+R²:           1.000000
+NED:          0.0000
+SA (Equiv):   True
 ```
 
 ---
 
 ## Evaluation
 
-Run the comprehensive evaluation suite on the full AI Feynman dataset:
+Run the **Goldilocks Evaluation Suite** on the AI Feynman dataset to compute precision, complexity, and robustness metrics:
 
 ```bash
-python run_eval.py --ckpt checkpoints/last.ckpt
+python run_eval.py --ckpt checkpoints/last.ckpt --n_candidates 50 --temperature 0.1
 ```
 
 **Options:**
@@ -139,21 +225,21 @@ python run_eval.py --ckpt checkpoints/last.ckpt
 | `--config` | `configs/base_config.yaml` | Config file path |
 | `--ckpt` | *(required)* | Checkpoint path |
 | `--output_dir` | `results` | Directory to save reports |
-| `--n_candidates` | 1 | Number of candidates to sample (use 10-20 for best results) |
-| `--temperature` | 0.8 | Sampling variance for candidate generation |
-| `--n_restarts` | 3 | BFGS optimisation restarts |
+| `--n_candidates` | 50 | Number of candidates to sample (Pool size N) |
+| `--temperature` | 0.1 | Sampling variance for candidate generation |
+| `--mode` | `eval` | `eval` for full suite, `predict` for single equation |
 
 **Metrics computed:**
 
 | Category | Metrics |
 |---|---|
 | **Standard** | Exact recovery rate, valid RPN rate, dimensional validity |
-| **Precision** | Pre-BFGS R², Post-BFGS R², BFGS improvement delta, Acc_τ at τ ∈ {0.1, 0.01, 0.001} |
+| **Precision** | R² (Pre/Post BFGS), NED (Normalized Edit Distance), SA (Symbolic Agreement) |
 | **Complexity** | Mean formula node count |
-| **Robustness** | R² vs noise level (ε ∈ {0.001, 0.01, 0.1}), R² vs data size (N ∈ {10, 50, 100, 200}), extrapolation R² |
+| **Robustness** | R² vs noise level (ε ∈ {0.001, 0.01, 0.1}), R² vs data size (N ∈ {10, 50, 100, 200}) |
 | **Operational** | Generation latency (ms), BFGS fitting latency (ms) |
 
-Results are saved to `results/eval_results.json` and printed to the console.
+Detailed reports are saved to `results/goldilocks_report.md`.
 
 ---
 
@@ -185,7 +271,7 @@ python -m unittest discover tests
 │   ├── generate_data.py       # Standalone generation CLI
 │   ├── tokenizer.py           # RPN tokenizer (44 tokens)
 │   ├── unit_table.py          # Physical unit lookup
-│   └── utils.py               # IEEE-754 encoding (uint8 optimized), unit targets
+│   └── utils.py               # IEEE-754 Encoding: each float → 16-bit float16 features
 ├── docs/
 │   ├── overview.md            # High-level architecture and design decisions
 │   └── technical_reference.md # Detailed module-by-module reference

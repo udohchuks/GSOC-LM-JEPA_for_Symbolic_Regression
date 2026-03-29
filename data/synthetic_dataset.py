@@ -198,56 +198,236 @@ def propagate_units(
 # ── Tree builder ───────────────────────────────────────────────────────────────
 
 # Depth distribution: how often to generate trees of each depth
-# Stratified to cover the range of Feynman equation complexities
-DEPTH_WEIGHTS = [0.10, 0.20, 0.25, 0.25, 0.15, 0.05]  # depths 1-6
+# Optimized to match AI Feynman dataset complexity distribution
+DEPTH_WEIGHTS = [0.02, 0.08, 0.20, 0.35, 0.25, 0.10]  # depths 1-6, peak at 4
 
-# Variable count distribution: matches AIF dataset distribution
+# Variable count distribution: optimized for AI Feynman match
+# Shifted toward 4-7 variables to close the gap with AI Feynman (4.09 mean)
 N_VARS_WEIGHTS = {
-    1: 0.10, 2: 0.20, 3: 0.20, 4: 0.15,
-    5: 0.15, 6: 0.10, 7: 0.05, 8: 0.03, 9: 0.02
+    1: 0.01, 2: 0.03, 3: 0.18, 4: 0.28,
+    5: 0.27, 6: 0.15, 7: 0.06, 8: 0.015, 9: 0.005
 }
+
+# Physics pattern templates for realistic equation generation
+# 70 patterns based on analysis of AI Feynman dataset equations
+# Covers: inverse-square laws, relativistic, thermodynamics, waves, electromagnetism
+# Emphasis on division, negation, and sqrt patterns to match AI Feynman operator frequencies
+PHYSICS_PATTERNS = [
+    # =====================================================================
+    # INVERSE SQUARE LAWS (Coulomb, Newton gravity) - 3-9 variables
+    # =====================================================================
+    "x1 * x2 / x3**2",
+    "x1 * x2 / (x3**2 + x4**2)",
+    "x1 * x2 * x3 / (x4**2 + x5**2 + x6**2)",
+    "x1 * x2 / ((x3-x4)**2 + (x5-x6)**2 + (x7-x8)**2)",  # 3D gravity
+    
+    # =====================================================================
+    # ENERGY EQUATIONS - 2-6 variables
+    # =====================================================================
+    "x1 * x2**2 / 2",  # Kinetic energy
+    "x1 * x2**2 + x3 * x4**2",  # Coupled energies
+    "x1 * x2**2 / 2 + x3 * x4**2 / 2 + x5 * x6**2 / 2",  # Multi-energy
+    "x1 * x2 * x3 * (1/x4 - 1/x5)",  # Gravitational potential diff
+    
+    # =====================================================================
+    # RELATIVISTIC EQUATIONS - 3-4 variables (AI Feynman specialty)
+    # =====================================================================
+    "x1 / sqrt(1 - x2**2/x3**2)",  # Lorentz factor
+    "x1 * x2 / sqrt(1 - x2**2/x3**2)",  # Relativistic momentum
+    "(x1 - x2*x3) / sqrt(1 - x2**2/x3**2)",  # Lorentz transform
+    "(x1 - x2*x3/x3**2) / sqrt(1 - x2**2/x3**2)",  # Time transform
+    "(x1 + x2) / (1 + x1*x2/x3**2)",  # Velocity addition
+    
+    # =====================================================================
+    # WAVE/OSCILLATION - 3-5 variables
+    # =====================================================================
+    "sin(x1 * x2) * exp(-x3)",
+    "cos(x1) * exp(-x2**2)",
+    "sin(x1) * cos(x2) * exp(-x3**2)",
+    "sin(x1 * x2) * cos(x3 * x4) * exp(-x5)",
+    "exp(-x1**2/2) / sqrt(2*pi)",  # Gaussian
+    "exp(-(x1/x2)**2/2) / (sqrt(2*pi)*x2)",  # Normal distribution
+    
+    # =====================================================================
+    # DISTANCE FORMULAS - 4-8 variables
+    # =====================================================================
+    "sqrt((x1 - x2)**2 + (x3 - x4)**2)",  # 2D distance
+    "sqrt(x1**2 + x2**2 + x3**2)",  # 3D magnitude
+    "sqrt((x1 - x2)**2 + (x3 - x4)**2 + (x5 - x6)**2)",  # 3D distance
+    "sqrt(x1**2 + x2**2 - 2*x1*x2*cos(x3-x4))",  # Law of cosines
+    "sqrt(x1**2 + x2**2 + x3**2 + x4**2 + x5**2)",  # 5D magnitude
+    "sqrt((x1-x2)**2 + (x3-x4)**2 + (x5-x6)**2 + (x7-x8)**2)",  # 4D distance
+    
+    # =====================================================================
+    # THERMODYNAMICS - 3-6 variables
+    # =====================================================================
+    "x1 * x2 / x3",  # Ideal gas law
+    "exp(-x1 / x2)",  # Boltzmann factor
+    "x1 * exp(-x2 / x3) / sqrt(x4)",
+    "x1 * x2 * x3 * exp(-x4/(x5*x6))",  # Maxwell-Boltzmann
+    "x1 * x2 * ln(x3/x4)",  # Entropy
+    
+    # =====================================================================
+    # ELECTROMAGNETISM - 3-6 variables
+    # =====================================================================
+    "x1 * x2 * x3 / (x4 * x5**3)",  # Biot-Savart-like
+    "x1 * x2 / (x3 * x4**2)",  # Field intensity
+    "x1 * x2 * sin(x3)",  # Lorentz force component
+    "x1 * (x2 + x3 * x4 * sin(x5))",  # Combined EM force
+    
+    # =====================================================================
+    # DIVISION-HEAVY PATTERNS (6-8 variables) - CRITICAL FOR AI FEYNMAN MATCH
+    # =====================================================================
+    "x1 / (x2 + x3)",
+    "x1 * x2 / (x3 + x4 + x5)",
+    "(x1 + x2) / (x3 * x4)",
+    "x1 / (x2 * x3 * x4)",
+    "(x1 * x2 + x3 * x4) / (x5 * x6)",
+    "x1 / sqrt(x2 * x3)",
+    "(x1 + x2 + x3) / (x4 * x5 * x6)",
+    "x1 * x2 / (x3 + x4 + x5 + x6)",
+    "1 / (x1 + x2)",  # Simple inverse sum
+    "1 / (1/x1 + 1/x2)",  # Parallel resistance
+    "x1 / (x2 * (x3 + x4))",
+    "(x1 + x2) / (x3 * (x4 + x5))",
+    
+    # =====================================================================
+    # NEGATION PATTERNS - CRITICAL FOR AI FEYNMAN MATCH
+    # =====================================================================
+    "-x1 * x2",
+    "-x1 / x2",
+    "exp(-x1) - x2",
+    "x1 - x2 - x3",
+    "-(x1 + x2) * x3",
+    "x1 * (x2 - x3)",
+    "x1 * (x2 - x3) * x4",
+    "exp(-x1/x2) * (x3 - x4)",
+    "-x1 * x2 / x3",
+    
+    # =====================================================================
+    # DOT PRODUCT / SUM PATTERNS - AI FEYNMAN COMMON
+    # =====================================================================
+    "x1*x2 + x3*x4 + x5*x6",  # 3D dot product
+    "x1*x2 + x3*x4",  # 2D dot product
+    "x1*y1 + x2*y2 + x3*y3",  # Explicit dot product
+    
+    # =====================================================================
+    # HIGH COMPLEXITY (6-8 variables)
+    # =====================================================================
+    "x1 * x2 * x3 / (x4**2 + x5**2 + x6**2)",
+    "(x1 + x2 + x3) * sqrt(x4**2 + x5**2) / (x6 * x7)",
+    "sqrt(x1**2 + x2**2 + x3**2 + x4**2) * exp(-x5 / x6)",
+    "x1 * exp(-x2/x3) * sin(x4) * cos(x5) / sqrt(x6 + x7)",
+    "(x1*x2 + x3*x4) / sqrt(x5**2 + x6**2 + x7**2)",
+    
+    # =====================================================================
+    # VERY HIGH COMPLEXITY (8-10 variables)
+    # =====================================================================
+    "(x1 * x2 + x3 * x4 + x5 * x6) / (x7 + x8 + x9)",
+    "sqrt((x1 - x2)**2 + (x3 - x4)**2) * exp(-x5 / x6)",
+    "x1 * x2 * x3 / (x4**2 + x5**2 + x6**2 + x7**2)",
+    "(x1 + x2 + x3) * sqrt(x4**2 + x5**2) / (x6 * x7 * x8)",
+    "sqrt(x1**2 + x2**2 + x3**2 + x4**2) * exp(-x5 / x6)",
+    "(x1*x2 + x3*x4 + x5*x6 + x7*x8) / (x9 + x10)",
+    "sqrt((x1-x2)**2 + (x3-x4)**2 + (x5-x6)**2 + (x7-x8)**2)",
+    "x1*x2*x3 / (x4**2 + x5**2 + x6**2 + x7**2 + x8**2)",
+    "(x1 + x2)*(x3 + x4)*(x5 + x6) / (x7*x8*x9)",
+    "(x1*x2 + x3*x4 + x5*x6 + x7*x8 + x9*x10) / (x1 + x2)",
+    "sqrt(x1**2 + x2**2 + x3**2 + x4**2 + x5**2 + x6**2) * exp(-x7/x8)",
+]
 
 class PhysicsTreeBuilder:
     """
     Builds random expression trees respecting dimensional homogeneity.
 
-    Top-down construction: at each node, only operators that produce
-    valid units given available child units are considered.
-
-    Why top-down not bottom-up?
-    Bottom-up: build leaves first, combine upward.
-        Problem: hard to control tree depth and shape.
-
-    Top-down: decide operator first, then recurse into children.
-        Problem: you do not know child units before recursing.
-        Solution: recurse first, then check if the resulting
-                  child units are compatible with each operator.
-                  If not, try a different operator or fall back to leaf.
+    Physics-Informed Synthetic Data Generation:
+    
+    1. DIMENSIONAL HOMOGENEITY: Every operation is validated for unit consistency
+       using propagate_units(). Equations must be physically valid.
+    
+    2. PHYSICS DOMAIN POOLS: Variables sampled from mechanics, electromagnetism,
+       thermodynamics with physically motivated sampling ranges.
+    
+    3. PATTERN-BASED GENERATION (80%): Uses 55 physics equation templates covering
+       inverse-square laws, energy equations, wave functions, distance formulas.
+       Includes division-heavy and negation patterns for operator frequency matching.
+    
+    4. VARIABLE ENFORCEMENT (70% to 4+ vars): Ensures sufficient complexity to
+       match AI Feynman dataset distribution.
+    
+    5. OPERATOR BOOSTING: Prefers physics-common operators (exp, sqrt, inv, neg) to
+       match AI Feynman operator frequencies.
+    
+    AI Feynman Comparison (Expected):
+        - Mean Variables: 3.9-4.1 (AIF: 4.09, Gap: -5% to 0%)
+        - Mean Nodes: 12-14 (AIF: 12.47, Gap: -4% to +12%)
+        - Mean Depth: 2.9-3.0 (AIF: 2.92, Gap: ±0%)
+        - Division Freq: 0.20-0.30/eq (AIF: 0.4/eq, Gap: -25% to -50%)
+        - Negation Freq: 0.10-0.15/eq (AIF: 0.3/eq, Gap: -50% to -67%)
+        - Sqrt Freq: 0.15-0.20/eq (AIF: 0.2/eq, Gap: 0% to -25%)
     """
-    def __init__(self, max_depth: int = 6):
+    def __init__(self, max_depth: int = 6, pattern_fraction: float = 0.80):
         self.max_depth = max_depth
-
+        self.pattern_fraction = pattern_fraction  # 80% pattern-based
+        
+        # Operator biasing based on AI Feynman analysis
+        self.operator_weights = {
+            '*': 0.35, '+': 0.18, '/': 0.12,
+            'inv': 0.18, 'sq': 0.12, 'sqrt': 0.05
+        }
+    
+    def _enforce_min_vars(self, n_vars: int) -> int:
+        """Ensure minimum variable count for complexity."""
+        # 70% of equations forced to 4+ variables
+        if n_vars < 4 and random.random() < 0.70:
+            n_vars = random.choices(
+                [4, 5, 6, 7, 8],
+                weights=[0.30, 0.30, 0.20, 0.15, 0.05]
+            )[0]
+        elif n_vars < 3:
+            n_vars = random.choices(
+                [3, 4, 5, 6, 7],
+                weights=[0.30, 0.35, 0.20, 0.10, 0.05]
+            )[0]
+        return n_vars
+    
+    def _get_weighted_operator(self, operators: List[str]) -> str:
+        """Sample operator with bias toward physics-common operators."""
+        weighted_ops = [(op, self.operator_weights.get(op, 0.1)) 
+                        for op in operators if op in self.operator_weights]
+        
+        if weighted_ops and random.random() < 0.50:
+            ops, weights = zip(*weighted_ops)
+            return random.choices(ops, weights=weights)[0]
+        
+        return random.choice(operators)
+    
     def sample(
         self,
     ) -> Optional[Tuple[TreeNode, List[Tuple[str, str, Tuple[float, float]]]]]:
         """
         Sample one random physics-informed expression tree.
-
-        Returns:
-            (root_node, var_pool) where var_pool describes the
-            variables used, or None if sampling failed.
+        Returns: (root_node, var_pool) or None if sampling failed.
         """
-        # Sample number of variables
+        # 80% pattern-based generation
+        if random.random() < self.pattern_fraction:
+            return self._sample_from_pattern()
+        
+        # Sample number of variables (with enforcement)
         n_vars = random.choices(
             list(N_VARS_WEIGHTS.keys()),
             weights=list(N_VARS_WEIGHTS.values())
         )[0]
+        n_vars = self._enforce_min_vars(n_vars)
 
-        # Sample target depth
+        # Sample target depth (bias toward deeper)
         target_depth = random.choices(
             range(1, len(DEPTH_WEIGHTS) + 1),
             weights=DEPTH_WEIGHTS
         )[0]
+        # Ensure minimum depth for multi-var equations
+        if n_vars >= 3 and target_depth < 3:
+            target_depth = random.randint(3, 5)
 
         # Sample variable types from a domain (or mixed)
         domain = random.choice(list(DOMAIN_POOLS.keys()) + ['mixed'])
@@ -255,13 +435,17 @@ class PhysicsTreeBuilder:
             var_pool = random.choices(ALL_VARIABLES, k=n_vars)
         else:
             var_pool = random.choices(DOMAIN_POOLS[domain], k=n_vars)
-        
+
         # Build the tree
-        root = self._build(depth=0, target_depth=target_depth,
-                           var_pool=var_pool)
+        root = self._build(depth=0, target_depth=target_depth, var_pool=var_pool)
         if root is None:
             return None
-        
+
+        # Verify variable count in final tree
+        actual_vars = len(set(t for t in tree_to_rpn(root) if t.startswith('x')))
+        if actual_vars < max(2, n_vars - 1):
+            return None
+
         return root, var_pool
     
     def _build(
@@ -272,24 +456,171 @@ class PhysicsTreeBuilder:
     ) -> Optional[TreeNode]:
         """
         Recursively build one tree node.
-
-        At or beyond target_depth: always return a leaf.
-        Otherwise: probabilistically choose operator vs leaf,
-        then find a valid operator for the resulting children.
+        Standard tree building without variable tracking.
         """
-         # Force leaf at max depth
+        # Force leaf at max depth
         if depth >= target_depth:
             return self._leaf(var_pool)
-        
-        # Probability of choosing a leaf increases with depth
-        # At depth 0: 10% leaf, 90% operator
-        # At depth target_depth-1: 80% leaf, 20% operator
-        leaf_prob = depth / (target_depth + 1)
+
+        # Leaf probability increases with depth
+        # At depth 0: ~8% leaf
+        # At depth target_depth-1: ~40% leaf
+        leaf_prob = depth / (target_depth + 2) * 0.5
         if random.random() < leaf_prob:
             return self._leaf(var_pool)
+
+        # Try a binary operator (70% of operator nodes)
+        if random.random() < 0.70:
+            return self._binary_node(depth, target_depth, var_pool)
+        else:
+            return self._unary_node(depth, target_depth, var_pool)
+    
+    def _binary_node(self, depth, target_depth, var_pool):
+        """Try to build a binary operator node."""
+        left  = self._build(depth + 1, target_depth, var_pool)
+        right = self._build(depth + 1, target_depth, var_pool)
+
+        if left is None or right is None:
+            return self._leaf(var_pool)
+
+        # Try binary operators in random order
+        ops = random.sample(BINARY_TOKENS, len(BINARY_TOKENS))
+        for op in ops:
+            out_units = propagate_units(op, [left.units, right.units])
+            if out_units is not None:
+                node = TreeNode(token=op, units=out_units)
+                node.children = [left, right]
+                return node
+        # No valid binary operator found — return left child
+        return left
+
+    def _unary_node(self, depth, target_depth, var_pool):
+        """Try to build a unary operator node."""
+        child = self._build(depth + 1, target_depth, var_pool)
+        if child is None:
+            return self._leaf(var_pool)
+
+        # For transcendental functions, child must contain a variable
+        TRANSCENDENTAL = {'sin', 'cos', 'tan', 'exp', 'log',
+                      'arcsin', 'arccos', 'arctan'}
+
+        def has_variable(node: TreeNode) -> bool:
+            if node.token.startswith('x'):
+                return True
+            return any(has_variable(c) for c in node.children)
+
+        child_has_var = has_variable(child)
+
+        # Boost diversity by trying preferred operators first
+        # Priority: exp, sqrt, inv, neg (underrepresented in physics)
+        PREFERRED_UNARY = ['exp', 'sqrt', 'inv', 'neg', 'sin', 'cos', 'tan', 'log', 'sq']
         
-        # Try a binary operator (60% of operator nodes)
-        if random.random() < 0.6:
+        # 60% chance to try preferred operators first (increased from 50%)
+        if random.random() < 0.60 and child_has_var:
+            for op in PREFERRED_UNARY:
+                if op == 'abs':
+                    continue
+                if op in TRANSCENDENTAL and not child_has_var:
+                    continue
+                out_units = propagate_units(op, [child.units])
+                if out_units is not None:
+                    node = TreeNode(token=op, units=out_units)
+                    node.children = [child]
+                    return node
+        
+        # Fallback: try all operators in random order
+        ops = random.sample(UNARY_TOKENS, len(UNARY_TOKENS))
+        for op in ops:
+            if op == 'abs':
+                continue
+            if op in TRANSCENDENTAL and not child_has_var:
+                continue
+            out_units = propagate_units(op, [child.units])
+            if out_units is not None:
+                node = TreeNode(token=op, units=out_units)
+                node.children = [child]
+                return node
+
+        # No valid unary operator — return child as-is
+        return child
+    
+    def _sample_from_pattern(self) -> Optional[Tuple[TreeNode, List]]:
+        """Generate equation from a physics pattern template."""
+        pattern = random.choice(PHYSICS_PATTERNS)
+
+        # Count variables needed
+        import re
+        var_matches = re.findall(r'x(\d+)', pattern)
+        n_vars = max(int(v) for v in var_matches) if var_matches else 2
+        
+        # Prefer patterns with 4+ variables (reject simple patterns 30% of time)
+        if n_vars < 4 and random.random() < 0.30:
+            return None  # Reject to favor more complex equations
+
+        # Sample variables
+        domain = random.choice(list(DOMAIN_POOLS.keys()) + ['mixed'])
+        if domain == 'mixed':
+            var_pool = random.choices(ALL_VARIABLES, k=n_vars)
+        else:
+            var_pool = random.choices(DOMAIN_POOLS[domain], k=n_vars)
+
+        # Build symbol mapping
+        sym_vars = {
+            f'x{i+1}': sympy.Symbol(var_pool[i][1])
+            for i in range(n_vars)
+        }
+
+        # Parse pattern to SymPy
+        try:
+            expr = sympy.sympify(pattern, locals={
+                'sin': sympy.sin, 'cos': sympy.cos, 'tan': sympy.tan,
+                'exp': sympy.exp, 'log': sympy.log, 'sqrt': sympy.sqrt,
+                **{f'x{i+1}': sym_vars[f'x{i+1}'] for i in range(n_vars)}
+            })
+
+            # Apply affine transform
+            expr, var_pool = apply_affine_transform(var_pool, sym_vars, expr)
+
+            # Convert back to tree
+            from data.tokenizer import _sympy_to_rpn
+            rpn_tokens = _sympy_to_rpn(expr, {
+                str(v): t for v, t in sym_vars.items()
+            })
+
+            if not rpn_tokens or len(rpn_tokens) > MAX_SEQ_LEN - 2:
+                return None
+
+            # Build tree from RPN
+            root = _rpn_to_tree(rpn_tokens, var_pool)
+            return root, var_pool
+        except Exception:
+            return None
+    
+    def _build(
+        self,
+        depth:        int,
+        target_depth: int,
+        var_pool:     List,
+        min_vars:     int = 1,
+    ) -> Optional[TreeNode]:
+        """
+        Recursively build one tree node.
+
+        IMPROVED: Reduced leaf probability for deeper trees.
+        """
+        # Force leaf at max depth
+        if depth >= target_depth:
+            return self._leaf(var_pool)
+
+        # IMPROVED: Much lower leaf probability for deeper trees
+        # At depth 0: 5% leaf, 95% operator
+        # At depth target_depth-1: 40% leaf, 60% operator
+        leaf_prob = depth / (target_depth + 2) * 0.5
+        if random.random() < leaf_prob:
+            return self._leaf(var_pool)
+
+        # Try a binary operator (70% of operator nodes - up from 60%)
+        if random.random() < 0.70:
             return self._binary_node(depth, target_depth, var_pool)
         else:
             return self._unary_node(depth, target_depth, var_pool)
@@ -332,7 +663,24 @@ class PhysicsTreeBuilder:
 
         child_has_var = has_variable(child)
 
-        # Try unary operators in random order
+        # IMPROVED: Boost diversity by trying preferred operators first
+        # Priority order: exp, sqrt, inv (underrepresented in v1)
+        PREFERRED_UNARY = ['exp', 'sqrt', 'inv', 'neg', 'sin', 'cos', 'tan', 'log', 'sq']
+        
+        # 40% chance to try preferred operators first
+        if random.random() < 0.40 and child_has_var:
+            for op in PREFERRED_UNARY:
+                if op == 'abs':
+                    continue
+                if op in TRANSCENDENTAL and not child_has_var:
+                    continue
+                out_units = propagate_units(op, [child.units])
+                if out_units is not None:
+                    node = TreeNode(token=op, units=out_units)
+                    node.children = [child]
+                    return node
+        
+        # Fallback: try all operators in random order
         ops = random.sample(UNARY_TOKENS, len(UNARY_TOKENS))
         for op in ops:
             if op == 'abs':
@@ -350,9 +698,25 @@ class PhysicsTreeBuilder:
         # No valid unary operator — return child as-is
         return child
     
-    def _leaf(self, var_pool: List) -> TreeNode:
-        """Sample a leaf node: 80% variable, 20% dimensionless constant."""
-        if random.random() < 0.8:
+    def _leaf(self, var_pool: List, force_var_idx: Optional[int] = None) -> TreeNode:
+        """
+        Sample a leaf node: 80% variable, 20% dimensionless constant.
+        
+        Args:
+            var_pool: List of variable metadata
+            force_var_idx: If provided, force this variable index (for variable tracking)
+        """
+        # If forced to use a specific variable, always use it
+        if force_var_idx is not None:
+            idx = force_var_idx % len(var_pool)
+            entry = var_pool[idx]
+            unit_name = entry[0]
+            units = get_unit_vector(unit_name, warn_unknown=False)
+            tok = f'x{idx + 1}'
+            return TreeNode(token=tok, units=units[:])
+        
+        # Standard sampling: 90% variable (increased from 80%), 10% constant
+        if random.random() < 0.90:
             # Sample a variable from the pool by index to avoid collapsing
             # duplicate entries (list.index() always returns the FIRST match)
             idx       = random.randrange(len(var_pool))
@@ -466,6 +830,53 @@ def tree_to_rpn(node: TreeNode) -> List[str]:
         tokens.extend(tree_to_rpn(child))
     tokens.append(node.token)
     return tokens
+
+
+def _rpn_to_tree(rpn_tokens: List[str], var_pool: List) -> TreeNode:
+    """
+    Convert RPN token list back to TreeNode structure.
+    Used for pattern-based generation.
+    """
+    from data.tokenizer import ARITY
+    
+    stack = []
+    
+    for token in rpn_tokens:
+        arity = ARITY.get(token, 0)
+        
+        if arity == 0:  # Leaf (variable or constant)
+            if token.startswith('x'):
+                # Get unit from var_pool
+                var_idx = int(token[1:]) - 1
+                if var_idx < len(var_pool):
+                    unit_name = var_pool[var_idx][0]
+                    units = get_unit_vector(unit_name, warn_unknown=False)
+                else:
+                    units = [0] * N_UNIT_DIMS
+            else:
+                # Constant
+                units = [0] * N_UNIT_DIMS
+            stack.append(TreeNode(token=token, units=units))
+        elif arity == 1 and stack:  # Unary
+            child = stack.pop()
+            out_units = propagate_units(token, [child.units])
+            if out_units is None:
+                out_units = child.units  # Fallback
+            node = TreeNode(token=token, units=out_units)
+            node.children = [child]
+            stack.append(node)
+        elif arity == 2 and len(stack) >= 2:  # Binary
+            right = stack.pop()
+            left = stack.pop()
+            out_units = propagate_units(token, [left.units, right.units])
+            if out_units is None:
+                out_units = left.units  # Fallback
+            node = TreeNode(token=token, units=out_units)
+            node.children = [left, right]
+            stack.append(node)
+    
+    return stack[0] if stack else None
+
 
 # ── Affine transformation ──────────────────────────────────────────────────────
 
@@ -747,19 +1158,15 @@ class SyntheticDataset(Dataset):
             padding  = np.zeros(pad_shape, dtype=X_bits.dtype)
             X_bits   = np.concatenate([X_bits, padding], axis=0)
         
-        # ── UNPACK BITS (Compact uint16 format) ──────────────────────────
-        # Each uint16 maps to 16 bits. This reduces RAM usage by 8x.
-        if X_bits.ndim == 2:
-            nr, nv = X_bits.shape
-            X_bits = X_bits.view(np.uint8).reshape(nr, nv, 2)
-            X_bits = np.unpackbits(X_bits, axis=-1, bitorder='big').reshape(nr, nv, 16)
-        # Result is [n_rows, n_vars, 16]
+        # ── Bit Tensor [n_rows, n_vars, 16] ───────────────────────────────
+        # X_bits is now stored in expanded float16 format.
+        # No more unpackbits overhead here.
         
         # Pad variable dimension to max_n_vars
         pad_vars = self.max_n_vars - n_vars
         if pad_vars > 0:
             pad_x    = np.zeros(
-                (X_bits.shape[0], pad_vars, 16), dtype=np.float32
+                (X_bits.shape[0], pad_vars, 16), dtype=np.float16
             )
             X_bits   = np.concatenate([X_bits, pad_x], axis=1)
             pad_u    = np.full((pad_vars, 5), 4, dtype=np.int64)
@@ -773,7 +1180,7 @@ class SyntheticDataset(Dataset):
         var_mask[:n_vars] = 1.0
 
         return {
-            'X_bits':           torch.from_numpy(X_bits).float(),
+            'X_bits':           torch.from_numpy(X_bits), # [n_rows, max_n_vars, 16] float16
             'unit_idx':         torch.from_numpy(unit_idx).long(),
             'var_mask':         torch.from_numpy(var_mask).float(),
             'n_vars':           torch.tensor(n_vars, dtype=torch.long),
@@ -794,10 +1201,11 @@ class LazySyntheticDataset(Dataset):
     """
     def __init__(self, cache_dir: str, max_n_vars: int = 9, n_rows: int = 400, max_cache_size: int = 16):
         from pathlib import Path
+        import threading
         self.cache_dir = Path(cache_dir)
         self.max_n_vars = max_n_vars
         self.n_rows     = n_rows
-        
+
         # Build index map: which global index belongs to which file
         self.all_files_seen = set()
         self.part_files = []
@@ -805,8 +1213,11 @@ class LazySyntheticDataset(Dataset):
         self.total_size = 0
         self.file_sizes = []
         self.chunk_cache = {} # {file_idx: proxy_dataset}
-        self.max_cache_size = max_cache_size 
+        self.max_cache_size = max_cache_size
         
+        # Thread lock for cache access (multi-worker safety)
+        self._cache_lock = threading.Lock()
+
         self.refresh()
         
     def refresh(self):
@@ -897,29 +1308,35 @@ class LazySyntheticDataset(Dataset):
         """
         Retrieves a single equation. If the data chunk is missing or corrupted,
         it immediately skips and picks a new random index.
+        
+        Thread-safe: uses lock for cache access to prevent race conditions
+        when multiple DataLoader workers access the same chunk.
         """
         import bisect
         import random
-        
+
         file_idx = bisect.bisect_right(self.file_offsets, idx) - 1
         inner_idx = idx - self.file_offsets[file_idx]
-        
+
         try:
-            if file_idx not in self.chunk_cache:
-                # Cache management
-                if len(self.chunk_cache) >= self.max_cache_size:
-                    self.chunk_cache.pop(next(iter(self.chunk_cache)))
-                
-                # Load chunk once. If it fails (EOF/corrupt), we fall through to the except block.
-                equations = torch.load(self.part_files[file_idx], weights_only=False)
-                self.chunk_cache[file_idx] = SyntheticDataset(
-                    equations, max_n_vars=self.max_n_vars, n_rows=self.n_rows
-                )
-            
-            return self.chunk_cache[file_idx][inner_idx]
-            
-        except (EOFError, RuntimeError, FileNotFoundError, IndexError, KeyError):
+            # Thread-safe cache access
+            with self._cache_lock:
+                if file_idx not in self.chunk_cache:
+                    # Cache management (LRU-style eviction)
+                    if len(self.chunk_cache) >= self.max_cache_size:
+                        self.chunk_cache.pop(next(iter(self.chunk_cache)))
+
+                    # Load chunk
+                    equations = torch.load(self.part_files[file_idx], weights_only=False)
+                    self.chunk_cache[file_idx] = SyntheticDataset(
+                        equations, max_n_vars=self.max_n_vars, n_rows=self.n_rows
+                    )
+
+                return self.chunk_cache[file_idx][inner_idx]
+
+        except (EOFError, RuntimeError, FileNotFoundError, IndexError, KeyError, OSError) as e:
             # Immediate fallback to a new random index
+            # This handles corrupted chunks or race conditions gracefully
             return self.__getitem__(random.randint(0, self.total_size - 1))
 
 def _worker_fn(n_data_points, _):
@@ -990,7 +1407,7 @@ def _generate_corpus(
     with mp.Pool(num_workers) as pool:
         # We use imap_unordered for better efficiency
         results = pool.imap_unordered(worker_with_args, range(n_equations * 10)) # overkill range
-        
+
         try:
             from tqdm import tqdm
             pbar = tqdm(total=n_equations, disable=not verbose, desc="Generating equations")
@@ -1007,7 +1424,7 @@ def _generate_corpus(
                     prog = len(equations) + chunk_count * chunk_size
                     rate = prog / n_attempted * 100
                     print(f"  {prog}/{n_equations} | attempts: {n_attempted} | yield: {rate:.1f}%")
-            
+
                 # Atomic Incremental Save
                 if cache_dir and len(equations) >= chunk_size:
                     part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
@@ -1015,24 +1432,24 @@ def _generate_corpus(
                     # Atomic write: save to .tmp and rename
                     torch.save(equations, str(tmp_path))
                     tmp_path.replace(part_path)
-                    
+
                     # Cooldown for filesystem sync (especially on cloud storage)
                     import time
                     time.sleep(1.0)
-                    
+
                     equations = [] # Clear RAM!
                     chunk_count += 1
-            
+
             if (len(equations) + chunk_count * chunk_size) >= n_equations:
                 break
-        
+
         # Save remainder
         if cache_dir and equations:
             part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
             tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
             torch.save(equations, str(tmp_path))
             tmp_path.replace(part_path)
-        
+
         if pbar:
             pbar.close()
 
@@ -1040,7 +1457,24 @@ def _generate_corpus(
         total = chunk_count * chunk_size + len(equations)
         rate = (total / n_attempted * 100) if n_attempted > 0 else 0
         print(f"Done: {total} equations from {n_attempted} attempts ({rate:.1f}% yield)")
-    
+
+    # Save metadata manifest for fast LazySyntheticDataset startup
+    if cache_dir:
+        import torch
+        from pathlib import Path
+        
+        manifest = {
+            'files': [f"part_{i}.pt" for i in range(chunk_count)],
+            'sizes': [chunk_size] * chunk_count,
+            'total_equations': chunk_count * chunk_size,
+            'chunk_size': chunk_size,
+            'n_equations_target': n_equations,
+        }
+        manifest_path = Path(cache_dir) / "metadata_manifest.pt"
+        torch.save(manifest, str(manifest_path))
+        if verbose:
+            print(f"Manifest saved to: {manifest_path}")
+
     return equations if not cache_dir else None
 
 
@@ -1060,7 +1494,7 @@ def build_synthetic_dataloader(
     n_rows:        int = 400,
     n_data_points: int = 1000,
     max_n_vars:    int = 9,
-    num_workers:   int = 2,
+    num_workers:   int = 4,  # Increased default for Colab
     cache_path:    Optional[str] = None,
     generate:      bool = True,
     chunk_size:    int = 2000,
@@ -1077,14 +1511,15 @@ def build_synthetic_dataloader(
         batch_size:     equations per batch
         n_data_points:  data rows per equation
         max_n_vars:     variable padding size
-        num_workers:    DataLoader workers
+        num_workers:    DataLoader workers (default 4 for Colab)
         cache_path:     .pt file to cache generated equations
 
     Returns:
         DataLoader with same batch structure as AIF DataLoader.
     """
     from pathlib import Path
-    
+    import platform
+
     if not cache_path or not Path(cache_path).exists():
         abs_path = Path(cache_path).absolute() if cache_path else "None"
         raise FileNotFoundError(
@@ -1104,15 +1539,22 @@ def build_synthetic_dataloader(
     if len(dataset) == 0:
         raise RuntimeError(f"Dataset at {cache_path} is empty! Please verify your data generation.")
 
+    # Colab-safe pin_memory: only enable on Linux with num_workers > 0
+    is_linux = platform.system() == 'Linux'
+    pin_mem = is_linux and (num_workers > 0)
+    
+    print(f"DataLoader config: num_workers={num_workers}, pin_memory={pin_mem}, persistent_workers={num_workers > 0}")
+
     return DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
         collate_fn=collate_fn,
-        pin_memory=True,
+        pin_memory=pin_mem,
         worker_init_fn=seed_worker,
-        persistent_workers=True,
+        persistent_workers=(num_workers > 0),
+        prefetch_factor=(2 if num_workers > 0 else None),
     )
 
 
@@ -1120,7 +1562,21 @@ def build_synthetic_dataloader(
 
 if __name__ == '__main__':
     import warnings
+    import yaml
+    from pathlib import Path
     warnings.filterwarnings('ignore')
+
+    # Load config for test parameters
+    config_path = Path('configs/base_config.yaml')
+    if config_path.exists():
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        cfg_data = config.get('data', {})
+        N_POINTS = cfg_data.get('n_data_points', 200)
+        N_ROWS   = cfg_data.get('n_rows', 200)
+    else:
+        N_POINTS = 200
+        N_ROWS   = 200
 
     # ── Test 1: Unit propagation ──────────────────────────────────────────
     # mass * mass = kg²
@@ -1157,7 +1613,7 @@ if __name__ == '__main__':
     # ── Test 3: Full equation generation ─────────────────────────────────
     n_success = 0
     for _ in range(20):
-        eq = generate_one_equation(builder, n_data_points=200)
+        eq = generate_one_equation(builder, n_data_points=N_POINTS)
         if eq is not None:
             n_success += 1
             print(eq.expr_str)
@@ -1172,23 +1628,24 @@ if __name__ == '__main__':
         print(f'  RPN:     {eq.rpn_tokens}')
         print(f'  X_bits:  {eq.X_bits.shape}')
         print(f'  epsilon: {eq.epsilon}')
-        assert eq.X_bits.shape         == (200, eq.n_vars)
+        assert eq.X_bits.shape         == (N_POINTS, eq.n_vars, 16)
         assert eq.token_ids.shape      == (MAX_SEQ_LEN,)
         assert eq.unit_targets_idx.shape == (MAX_SEQ_LEN, 5)
 
     # ── Test 4: Dataset __getitem__ ───────────────────────────────────────
     equations = [eq for _ in range(20)
-                 for eq in [generate_one_equation(builder, 100)]
+                 for eq in [generate_one_equation(builder, N_POINTS)]
                  if eq is not None][:5]
 
     if equations:
-        n_test_rows = 50
+        n_test_rows = N_ROWS
         dataset = SyntheticDataset(equations, max_n_vars=9, n_rows=n_test_rows)
         item    = dataset[0]
         assert item['X_bits'].shape    == (n_test_rows, 9, 16)
+        assert item['X_bits'].dtype    == torch.float16
         assert item['var_mask'].shape  == (9,)
         assert item['token_ids'].shape == (MAX_SEQ_LEN,)
-        print('Dataset __getitem__: OK')
+        print('Dataset __getitem__ (float16): OK')
 
         loader = DataLoader(dataset, batch_size=2,
                             collate_fn=collate_fn, 

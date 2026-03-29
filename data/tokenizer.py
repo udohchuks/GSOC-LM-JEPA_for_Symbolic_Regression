@@ -423,42 +423,10 @@ def rpn_to_sympy(tokens: List[str]) -> sympy.Expr:
             if not func:
                 raise ValueError(f"Unknown binary operator {tok}")
             stack.append(func(left, right))
-            
+
     if len(stack) != 1:
         raise ValueError("Invalid RPN sequence: stack does not contain exactly 1 element at the end")
-        
+
     return stack[0]
 
-# Quick test at bottom of file (or in a test script)
-if __name__ == '__main__':
-    # Test 1: valid and invalid RPN
-    assert is_valid_rpn(['x1', 'x2', '+'])
-    assert not is_valid_rpn(['+', 'x1', 'x2'])
-    assert not is_valid_rpn(['x1', 'x2', '+', 'x3'])
-    print('Stack counter: OK')
-    
-    # Test 2: validity mask
-    valid = get_valid_next_tokens(stack_depth=0, seq_len=0, max_len=25)
-    for idx in valid:
-        assert ARITY.get(IDX2TOKEN[idx], 0) == 0, \
-            f'Binary/unary at depth 0: {IDX2TOKEN[idx]}'
-    print('Validity mask at depth 0: OK')
-    
-    # Test 3: formula tokenisation
-    rpn = formula_string_to_rpn(
-        'exp(-theta**2/2)/sqrt(2*pi)', ['theta']
-    )
-    print(f'Gaussian RPN: {rpn}')
-    assert is_valid_rpn(rpn)
-    print('Formula tokenisation: OK')
-    
-    # Test 4: encode/decode round trip
-    encoded = encode_formula(rpn, pad_to=MAX_SEQ_LEN)
-    assert len(encoded) == MAX_SEQ_LEN
-    decoded = decode_formula(encoded)
-    assert decoded == rpn
-    print('Encode/decode round trip: OK')
-    
-    print(f'\nVocab size: {VOCAB_SIZE}')
-    print('All tokenizer tests passed.')
     

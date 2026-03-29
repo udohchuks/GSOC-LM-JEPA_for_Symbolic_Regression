@@ -12,15 +12,16 @@ data:
   # Synthetic pretraining corpus
   synthetic_cache: "cache/synthetic_1M"
   n_synthetic:     1000000              # Colab: 10k, Cloud: 1M+
-  n_data_points:   2000              # rows per synthetic equation
+  n_data_points:   2000                 # rows per synthetic equation
+  num_workers:     4                    # Generation workers (Colab: 4, Cloud: 8+)
 
   # DataLoader
-  n_rows:      200                   # rows subsampled per equation per step
-  max_n_vars:  9                     # variable padding size
+  n_rows:      200                      # rows subsampled per equation per step
+  max_n_vars:  9                        # variable padding size
   batch_size:  128
-  num_workers: 8                   # Reduced from 16 for RAM stability (Safe-Mode)
-  chunk_size:  1000
-  max_cache_size: 32                    # prevent cache thrashing during shuffle
+  num_workers: 4                        # Workers for DataLoader (Colab: 4, Cloud: 8+)
+  chunk_size:  2000                     # Equations per chunk file (for incremental save)
+  max_cache_size: 16                    # Max chunk files cached in memory (prevents RAM thrashing)
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
@@ -79,6 +80,17 @@ checkpoint:
   save_last: true
   save_every_n_steps: 100           # Force checkpoint every 100 steps
   filename:      "jepa-{step:06d}-{val/total:.4f}"
+
+# ── Inference (ODEFormer & Goldilocks) ────────────────────────────────────────
+inference:
+  pool_size: 50              # Number of candidates to sample (N)
+  max_len: 45                # Max RPN tokens per formula (matches MAX_SEQ_LEN)
+  temperature: 0.1           # Sampling temperature for diversity
+  max_iter: 100              # Max iterations for BFGS constant fitting (increased for complex functions)
+  n_workers: 8               # CPU workers for parallel fitting
+  top_k: 5                   # Number of top candidates to rank/return
+  grammar_penalty: 1e9       # Penalty for invalid RPN tokens
+  n_restarts: 5              # Number of BFGS restarts for better convergence
 
 # ── Hardware ──────────────────────────────────────────────────────────────────
 hardware:

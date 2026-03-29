@@ -1,0 +1,86 @@
+# Test Configuration for Fast Validation
+# Use this for testing the pipeline before full-scale training
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  csv_path:    "data/FeynmanEquations.csv"
+  data_dir:    "data/Feynman_with_units/"
+  cache_dir:   "cache/"
+  
+  # Minimal synthetic data for testing
+  n_synthetic:     100              # Only 100 equations (vs 1M)
+  n_data_points:   100              # Only 100 rows per equation (vs 2000)
+  num_workers:     4                # Adjust based on your CPU cores
+  chunk_size:      10               # Small chunks for testing
+  
+  # Training data subsampling
+  n_rows:      50                   # Very small for fast training
+  max_n_vars:  5                    # Reduce padding (vs 9)
+  batch_size:  16                   # Small batch (vs 128)
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  d_model:      64                  # Tiny model (vs 128)
+  n_heads:      2                   # Minimal heads (vs 4)
+  n_isab:       1                   # Minimal ISAB blocks (vs 2)
+  n_col_attn:   1                   # Minimal column attention (vs 2)
+  n_enc_layers: 2                   # Tiny encoder (vs 4)
+  n_dec_layers: 2                   # Tiny decoder (vs 5)
+  m_inducing:   16                  # Reduced (vs 32)
+  max_n_vars:   5                   # Match data config
+  dropout:      0.1
+
+  predictor:
+    pred_n_heads:          2
+    pred_bottleneck_ratio: 0.5
+    pred_dropout:          0.2
+
+# ── Loss ──────────────────────────────────────────────────────────────────────
+loss:
+  lambda_jepa:   1.0
+  lambda_sigreg: 0.1
+  lambda_lm:     1.0
+  lambda_units:  1.0
+  alpha_lm:      2.0
+  num_slices:    64                  # Reduced for speed
+  num_points:    9                   # Reduced Epps-Pulley points
+
+# ── Training ──────────────────────────────────────────────────────────────────
+training:
+  lr:            1e-3                # Higher LR for fast convergence
+  weight_decay:  1e-2
+  max_epochs:    3                   # Only 3 epochs for testing!
+  warmup_steps:  100                 # Minimal warmup
+  use_synthetic: true
+  gradient_clip: 1.0
+  val_check_interval: 10             # Validate every 10 steps
+  limit_val_batches: 0.2             # Only 20% of validation
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  log_every_n_steps: 5
+  logger:  "tensorboard"
+  run_name: "test_run"
+
+# ── Checkpointing ─────────────────────────────────────────────────────────────
+checkpoint:
+  dirpath: "checkpoints/"
+  save_top_k: 1
+  monitor: "val/total"
+  mode: "min"
+  save_last: true
+  save_every_n_steps: 50
+  filename: "test-{step:06d}-{val/total:.4f}"
+
+# ── Inference ─────────────────────────────────────────────────────────────────
+inference:
+  beam_size: 3                       # Minimal beam for testing
+  max_len: 64
+  temperature: 0.7
+
+# ── Hardware ──────────────────────────────────────────────────────────────────
+hardware:
+  accelerator:  "gpu"
+  devices:      1
+  strategy:     "auto"
+  precision:    "16-mixed"          # Mixed precision for speed

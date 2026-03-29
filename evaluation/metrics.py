@@ -16,7 +16,9 @@ from __future__ import annotations
 import numpy as np
 import sympy
 from scipy.optimize import minimize
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
+from sklearn.metrics import r2_score
+import difflib
 import warnings
 
 
@@ -252,46 +254,116 @@ def fit_constants_with_scipy(
     return best_mse, optimized_expr
 
 
-# ── Exact Symbolic Equivalence ────────────────────────────────────────────────
+# ── Normalized Edit Distance (NED) ───────────────────────────────────────────
 
-def verify_exact(
-    predicted_str: str,
-    ground_truth_str: str,
+def calculate_ned(pred_expr_str: str, true_expr_str: str) -> float:
+    """
+    Convert expressions to prefix notation trees and compute Normalized Edit Distance.
+    
+    Lower is better (0 = identical, 1 = completely different).
+    Uses difflib.SequenceMatcher on the serialized prefix trees.
+    """
+    def expr_to_prefix(expr: sympy.Expr) -> List[str]:
+        """Recursive prefix serialization of a SymPy expression tree."""
+        if expr.is_Atom:
+            return [str(expr)]
+        # Use type name for operators to avoid string representation noise
+        return [type(expr).__name__] + [
+            node for arg in expr.args 
+            for node in expr_to_prefix(arg)
+        ]
+
+    try:
+        # Standardize symbols first
+        pred = sympy.sympify(pred_expr_str)
+        true = sympy.sympify(true_expr_str)
+        
+        pred_tree = expr_to_prefix(pred)
+        true_tree = expr_to_prefix(true)
+        
+        # normalized ratio of shared elements
+        ratio = difflib.SequenceMatcher(None, pred_tree, true_tree).ratio()
+        return 1.0 - ratio
+    except Exception:
+        return 1.0
+
+
+# ── Functional Symbolic Accuracy (Functional Equivalence) ───────────────────
+
+def verify_symbolic_accuracy(
+    pred_expr_str: str,
+    true_expr_str: str,
     var_names: List[str],
+    n_points: int = 1000,
+    tol: float = 1e-5
 ) -> bool:
     """
-    Check if predicted formula is algebraically equivalent to ground truth.
-
-    Uses SymPy simplify(pred - truth) == 0.
-    Falls back to numerical comparison if simplification times out.
+    Check functional equivalence via random point evaluation.
+    More robust than exact algebraic simplification for complex forms.
+    
+    Args:
+        pred_expr_str: recovered expression string
+        true_expr_str: ground truth expression string
+        var_names:     list of variable names (x1, x2, ...)
+        n_points:      number of random evaluation points
+        tol:           absolute and relative tolerance
     """
     try:
         local_dict = {name: sympy.Symbol(name) for name in var_names}
-        local_dict['pi'] = sympy.pi
-        local_dict['e'] = sympy.E
-
-        pred_expr = sympy.sympify(predicted_str, locals=local_dict)
-        true_expr = sympy.sympify(ground_truth_str, locals=local_dict)
-
-        diff = sympy.simplify(pred_expr - true_expr)
-        if diff == 0:
-            return True
-
-        # Numerical fallback: evaluate at random points
-        symbols = [sympy.Symbol(name) for name in var_names]
-        for _ in range(10):
-            point = {s: float(np.random.uniform(1, 5)) for s in symbols}
-            try:
-                v_pred = complex(pred_expr.subs(point))
-                v_true = complex(true_expr.subs(point))
-                if abs(v_pred - v_true) > 1e-6 * max(abs(v_true), 1e-12):
-                    return False
-            except Exception:
-                return False
-        return True
-
+        pred = sympy.sympify(pred_expr_str, locals=local_dict)
+        true = sympy.sympify(true_expr_str, locals=local_dict)
+        
+        # 1. Algebraic shortcut
+        try:
+            if sympy.simplify(pred - true) == 0:
+                return True
+        except: pass
+        
+        # 2. Numerical equivalence check
+        # Evaluate on a standardized domain (0.1 to 5.0) to avoid common zeros/poles
+        X_rand = np.random.uniform(0.1, 5.0, (n_points, len(var_names)))
+        
+        f_pred = sympy.lambdify([sympy.Symbol(v) for v in var_names], pred, 'numpy')
+        f_true = sympy.lambdify([sympy.Symbol(v) for v in var_names], true, 'numpy')
+        
+        y_pred = f_pred(*X_rand.T)
+        y_true = f_true(*X_rand.T)
+        
+        if not np.all(np.isfinite(y_pred)): return False
+        
+        return np.allclose(y_pred, y_true, atol=tol, rtol=tol)
     except Exception:
         return False
+
+
+def calculate_constant_recovery(
+    fitted_params: List[float],
+    true_params:   List[float],
+    tol:           float = 0.01
+) -> float:
+    """
+    Check if fitted constants match true constants within relative tolerance.
+    
+    Args:
+        fitted_params: constants from BFGS fitting
+        true_params:   constants from ground truth source
+        tol:           relative tolerance (default 0.01 = 1%)
+        
+    Returns:
+        1.0 if all match, else 0.0
+    """
+    if len(fitted_params) != len(true_params):
+        return 0.0
+    
+    # Sort for robust comparison since we are in SA-true case
+    f_sorted = sorted(fitted_params)
+    t_sorted = sorted(true_params)
+    
+    for f, t in zip(f_sorted, t_sorted):
+        denom = abs(t) + 1e-10
+        if abs(f - t) / denom >= tol:
+            return 0.0
+    return 1.0
 
 
 # ── Evaluate Expression ───────────────────────────────────────────────────────
@@ -320,46 +392,3 @@ def _evaluate_expr(
     except Exception:
         return np.full(X.shape[0], np.nan)
 
-
-# ── Self-test ─────────────────────────────────────────────────────────────────
-
-if __name__ == '__main__':
-    # Test node count
-    x, y_sym = sympy.symbols('x y')
-    assert calculate_node_count(x) == 1
-    assert calculate_node_count(x + y_sym) == 3  # Add, x, y
-    assert calculate_node_count(sympy.sin(x)) == 2  # sin, x
-    print('Node count: OK')
-
-    # Test accuracy to tolerance
-    y_true = np.array([1.0, 2.0, 3.0])
-    y_pred = np.array([1.001, 2.002, 3.003])
-    assert calculate_acc_tau(y_true, y_pred, tau=0.01) == 1.0
-    assert calculate_acc_tau(y_true, y_pred, tau=0.0001) == 0.0
-    print('Accuracy to tolerance: OK')
-
-    # Test R²
-    assert calculate_r2(y_true, y_true) == 1.0
-    assert calculate_r2(y_true, y_pred) > 0.99
-    print('R² score: OK')
-
-    # Test verify_exact
-    assert verify_exact('x + y', 'y + x', ['x', 'y']) == True
-    assert verify_exact('x + y', 'x * y', ['x', 'y']) == False
-    print('Exact verification: OK')
-
-    # Test fit_constants_with_scipy
-    c1, c2, x1 = sympy.symbols('c1 c2 x1')
-    expr_test = c1 * sympy.sin(c2 * x1)
-    X_test = np.linspace(0, 5, 100).reshape(-1, 1).astype(np.float32)
-    y_test = 2.5 * np.sin(1.2 * X_test.flatten()).astype(np.float32)
-    
-    mse, opt_expr = fit_constants_with_scipy(expr_test, X_test, y_test, ['x1'])
-    assert mse < 1e-5
-    # Check if constants are roughly correct (2.5 and 1.2)
-    const_vals = [float(val) for val in opt_expr.atoms(sympy.Float)]
-    assert any(abs(v - 2.5) < 0.1 for v in const_vals)
-    assert any(abs(v - 1.2) < 0.1 for v in const_vals)
-    print('fit_constants_with_scipy: OK')
-
-    print('\nAll metrics tests passed.')

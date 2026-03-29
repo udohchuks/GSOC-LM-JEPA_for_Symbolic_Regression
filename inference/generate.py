@@ -11,6 +11,7 @@ import numpy as np
 from typing import List, Dict, Optional
 from pathlib import Path
 from torch.utils.data import DataLoader
+import yaml
 
 from models.embedders import DataEmbedder, UnitEmbedder
 from models.encoder import MixEncoder
@@ -22,6 +23,22 @@ from data.tokenizer import (
 )
 from data.unit_table import N_UNIT_DIMS, N_UNIT_CLASSES
 from data.aif_dataset import build_aif_dataloader
+
+def _load_inference_config():
+    """Helper to load default inference params from config."""
+    try:
+        config_path = Path(__file__).parent.parent / "configs" / "base_config.yaml"
+        with open(config_path, "r") as f:
+            full_cfg = yaml.safe_load(f)
+            inf_cfg = full_cfg.get("inference", {})
+            # Ensure numeric types
+            if "grammar_penalty" in inf_cfg:
+                inf_cfg["grammar_penalty"] = float(inf_cfg["grammar_penalty"])
+            return inf_cfg
+    except:
+        return {}
+
+_INF_CFG = _load_inference_config()
 
 class InferenceModel(nn.Module):
     """
@@ -85,9 +102,10 @@ class InferenceModel(nn.Module):
         self,
         z_context:   torch.Tensor,
         unit_idx:    torch.Tensor,
-        max_len:     int = 30,
+        max_len:     int = _INF_CFG.get("max_len", 30),
         greedy:      bool = True,
-        temperature: float = 1.0,
+        temperature: float = _INF_CFG.get("temperature", 1.0),
+        grammar_penalty: float = _INF_CFG.get("grammar_penalty", 1e9),
     ) -> torch.Tensor:
         """
         Batched, autoregressive generation with RPN validity masking.
@@ -115,28 +133,34 @@ class InferenceModel(nn.Module):
         for step in range(max_len - 1):
             # Decoder forward pass
             logits, _ = self.decoder(generated, z_context, unit_idx)
-            next_logits = logits[:, -1, :]  # [B, VOCAB_SIZE]
+            next_logits = logits[:, -1, :] / temperature  # [B, VOCAB_SIZE]
 
-            # 3. Apply Validity Mask
-            # We still need a short loop here because get_valid_next_tokens has complex rules
-            mask = torch.full_like(next_logits, float('-inf'))
+            # 3. Apply Validity Mask (Grammar + Depth Constraints)
+            # Penalize invalid next tokens according to RPN grammar rules
+            mask = torch.zeros_like(next_logits)
             for b in range(B):
                 if finished[b]:
                     continue
+                
                 valid_idxs = get_valid_next_tokens(
                     stack_depth=stack_depths[b].item(),
                     seq_len=step,
                     max_len=max_len,
                 )
-                mask[b, valid_idxs] = 0.0
-            
+                
+                # Add penalty to invalid tokens
+                full_range = torch.arange(VOCAB_SIZE, device=device)
+                is_invalid = torch.ones_like(full_range, dtype=torch.bool)
+                is_invalid[valid_idxs] = False
+                mask[b, is_invalid] = -grammar_penalty
+
             next_logits = next_logits + mask
 
             # 4. Token Selection (Greedy or Sample)
             if greedy:
                 next_tokens = next_logits.argmax(dim=-1) # [B]
             else:
-                probs = torch.softmax(next_logits / temperature, dim=-1)
+                probs = torch.softmax(next_logits, dim=-1)
                 next_tokens = torch.multinomial(probs, num_samples=1).squeeze(-1) # [B]
 
             # 5. Handle Finished Sequences

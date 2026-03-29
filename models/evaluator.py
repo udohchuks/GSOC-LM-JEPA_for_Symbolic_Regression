@@ -2,7 +2,8 @@
 Model Evaluator for LLM-JEPA Symbolic Regression.
 
 Provides a high-level API for loading checkpoints, running evaluations on 
-the AI Feynman dataset, and generating human-readable reports.
+the AI Feynman dataset using the 'Goldilocks' suite, and generating 
+human-readable reports.
 """
 
 import yaml
@@ -17,7 +18,7 @@ from training.trainer import LLMJEPAModule
 from inference.generate import InferenceModel
 from data.aif_dataset import build_aif_dataloader
 from evaluation.evaluate import evaluate_dataset, print_results
-from evaluation.metrics import verify_exact
+from evaluation.metrics import verify_symbolic_accuracy, calculate_ned
 from data.tokenizer import decode_formula, rpn_to_sympy, VOCAB_SIZE, MAX_SEQ_LEN
 
 def load_inference_model(config_path: str, ckpt_path: str, device: str) -> InferenceModel:
@@ -51,11 +52,6 @@ def load_inference_model(config_path: str, ckpt_path: str, device: str) -> Infer
 class ModelEvaluator:
     """
     Unified evaluation and inference handler.
-    
-    Args:
-        config_path: Path to the YAML configuration file.
-        ckpt_path:   Path to the .ckpt of a PyTorch Lightning model.
-        device:      'cuda' or 'cpu'. Defaults to auto-detection.
     """
     def __init__(self, config_path: str, ckpt_path: str, device: Optional[str] = None):
         self.config_path = config_path
@@ -73,18 +69,11 @@ class ModelEvaluator:
         self, 
         output_dir: Optional[str] = None, 
         verbose: bool = True,
-        n_candidates: int = 1,
-        temperature: float = 0.8
+        n_candidates: int = 50,
+        temperature: float = 0.1
     ) -> Dict:
         """
-        Runs the full AI Feynman evaluation suite.
-        
-        Args:
-            output_dir: If provided, saves metrics and report to this folder.
-            verbose:    Whether to print progress to console.
-            
-        Returns:
-            Dictionary of metrics.
+        Runs the Goldilocks evaluation suite on AI Feynman.
         """
         print("Building AIF Dataloader...")
         loader = build_aif_dataloader(
@@ -94,27 +83,30 @@ class ModelEvaluator:
             cache_dir=self.config['data']['cache_dir'],
         )
         
-        print("Starting comprehensive evaluation...")
+        print(f"Starting Goldilocks evaluation (N={n_candidates}, T={temperature})...")
+        # Override config with CLI params if provided
+        inf_cfg = self.config.get('inference', {}).copy()
+        inf_cfg['pool_size'] = n_candidates
+        inf_cfg['temperature'] = temperature
+        
         metrics = evaluate_dataset(
             self.model, 
             loader.dataset, 
             device=self.device, 
             verbose=verbose,
             n_candidates=n_candidates,
-            temperature=temperature
+            temperature=temperature,
+            inf_config=inf_cfg
         )
         
         if output_dir:
-            self._save_results(metrics, Path(output_dir), loader.dataset)
+            self._save_results(metrics, Path(output_dir))
             
         return metrics
 
-    def _save_results(self, metrics: Dict, out_path: Path, dataset):
-        """Internal helper to save JSON and Markdown reports."""
+    def _save_results(self, metrics: Dict, out_path: Path):
+        """Save JSON and Markdown Goldilocks report."""
         out_path.mkdir(parents=True, exist_ok=True)
-        
-        # 0. Build an ID-to-Formula mapping to guarantee alignment
-        id_to_formula = {eq.eq_id: eq.formula_str for eq in dataset.equations}
         
         # 1. Save Metrics JSON
         with open(out_path / "metrics.json", "w") as f:
@@ -122,35 +114,39 @@ class ModelEvaluator:
             json.dump(metrics, f, indent=2, default=lambda x: float(x) if isinstance(x, (torch.Tensor, torch.long)) else x)
             
         # 2. Save Markdown Report
-        report_path = out_path / "evaluation_report.md"
+        report_path = out_path / "goldilocks_report.md"
         with open(report_path, "w") as f:
-            f.write("# 🧪 LLM-JEPA Evaluation Report\n\n")
+            f.write("# 🧪 LLM-JEPA Goldilocks Evaluation Report\n\n")
             f.write(f"**Checkpoint:** `{Path(self.ckpt_path).name}`\n")
             f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             
             f.write("## 📊 Summary Metrics\n")
             f.write(f"- **Equations Evaluated:** {metrics['n_equations']}\n")
-            f.write(f"- **Exact Recovery Rate:** {metrics['exact_recovery_rate']*100:.1f}%\n")
-            f.write(f"- **Mean R² (post-BFGS):** {metrics.get('mean_r2_post_bfgs', -1):.4f}\n")
-            f.write(f"- **Valid RPN Rate:** {metrics['valid_rpn_rate']*100:.1f}%\n\n")
+            f.write(f"- **Symbolic Accuracy (Skeleton Match):** {metrics.get('symbolic_accuracy', 0.0)*100:.1f}%\n")
+            f.write(f"- **Constant Recovery (Parameter Match):** {metrics.get('constant_recovery', 0.0)*100:.1f}%\n")
+            f.write(f"- **Median R²:** {metrics.get('median_r2', -1):.4f}\n")
+            f.write(f"- **Mean NED (Edit Distance):** {metrics.get('mean_ned', 1.0):.4f}\n\n")
             
-            f.write("## 🎨 Prediction Samples\n")
-            f.write("| ID | Ground Truth | Predicted (SymPy) | Exact? |\n")
-            f.write("|---|---|---|---|\n")
+            f.write("## 🎨 Results Table\n")
+            f.write("| ID | Truth | Predicted | R² | SymAcc | ConstRec | NED |\n")
+            f.write("|---|---|---|---|---|---|---|\n")
             
-            # Show first 10 results
-            for i in range(min(10, len(metrics['per_eq_results']))):
-                res = metrics['per_eq_results'][i]
+            for res in metrics.get('per_eq_results', []):
                 eq_id = res['eq_id']
-                gt = id_to_formula.get(eq_id, "Unknown ID")
+                truth = res['truth']
                 pred = res['predicted'] if res['predicted'] else "N/A"
-                exact = "✅" if res['exact'] else "❌"
-                f.write(f"| {eq_id} | `{gt}` | `${pred}$` | {exact} |\n")
+                r2 = f"{res['r2']:.4f}" if torch.isfinite(torch.tensor(res['r2'])) else "-inf"
+                sa = "✅" if res['symbolic_accuracy'] else "❌"
+                cr = "✅" if res.get('constant_recovery', 0.0) > 0.5 else "❌"
+                ned = f"{res['ned']:.4f}"
+                f.write(f"| {eq_id} | `{truth}` | `{pred}` | {r2} | {sa} | {cr} | {ned} |\n")
+            
+            f.write("\n**Legend:** SymAcc = Symbolic Accuracy, ConstRec = Constant Recovery\n")
         
         print(f"Results and report saved to: {out_path}")
 
-    def predict_sample_by_id(self, eq_id: str, n_candidates: int = 1, temperature: float = 0.8) -> Optional[Dict]:
-        """Runs inference on a specific equation ID from the AIF dataset."""
+    def predict_sample_by_id(self, eq_id: str, n_candidates: int = 50, temperature: float = 0.1) -> Optional[Dict]:
+        """Runs inference on a specific equation ID."""
         loader = build_aif_dataloader(
             csv_path=self.config['data']['csv_path'],
             data_dir=self.config['data']['data_dir'],
@@ -163,7 +159,6 @@ class ModelEvaluator:
 
         for eq in loader.dataset.equations:
             if eq.eq_id == eq_id:
-                # Use the unified evaluation helper for consistency
                 res = _evaluate_one(
                     self.model, 
                     eq, 
@@ -177,16 +172,8 @@ class ModelEvaluator:
                     'id': eq_id,
                     'gt': eq.formula_str,
                     'pred': res['predicted'],
-                    'tokens': res['tokens'],
-                    'exact': res['exact'],
-                    'mse': res.get('mse', -1)
+                    'r2': res['r2'],
+                    'sa': res['symbolic_accuracy'],
+                    'ned': res['ned']
                 }
         return None
-
-if __name__ == "__main__":
-    # Smoke test
-    evaluator = ModelEvaluator(
-        config_path="configs/base_config.yaml",
-        ckpt_path="checkpoints/last.ckpt"
-    )
-    # evaluator.run_evaluation(output_dir="results/smoke_test")
