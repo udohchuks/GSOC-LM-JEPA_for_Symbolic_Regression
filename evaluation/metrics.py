@@ -184,6 +184,74 @@ def fit_constants(
     return best_constants, best_r2
 
 
+def fit_constants_with_scipy(
+    expr: sympy.Expr, 
+    X_data: np.ndarray, 
+    y_data: np.ndarray, 
+    var_names: List[str]
+) -> Tuple[float, sympy.Expr]:
+    """
+    Takes a sympy skeleton, finds the best constants using BFGS, 
+    and returns the Mean Squared Error and the finalized equation.
+    """
+    # 1. Extract constants (c1, c2, etc.) and variables (x1, x2, etc.)
+    free_symbols = list(expr.free_symbols)
+    constants = [sym for sym in free_symbols if str(sym).startswith('c')]
+    
+    # If the model didn't predict any constants, just evaluate the raw error
+    if not constants:
+        try:
+            func = sympy.lambdify([sympy.Symbol(v) for v in var_names], expr, modules=['numpy'])
+            var_inputs = [X_data[:, i] for i in range(len(var_names))]
+            y_pred = func(*var_inputs)
+            mse = np.nanmean((y_data - y_pred)**2)
+            return mse, expr
+        except Exception:
+            return float('inf'), expr
+
+    # 2. Convert sympy expression to a fast numpy function
+    args = constants + [sympy.Symbol(v) for v in var_names]
+    try:
+        func = sympy.lambdify(args, expr, modules=['numpy'])
+    except Exception:
+        return float('inf'), expr # Failsafe for mathematically invalid structures
+
+    # 3. Define the objective function for SciPy to minimize
+    def objective(c_values):
+        try:
+            # Unpack the columns of X_data into separate variable arrays
+            var_inputs = [X_data[:, i] for i in range(len(var_names))]
+            
+            # Predict y using the current guesses for constants
+            y_pred = func(*c_values, *var_inputs)
+            
+            # Catch physics domain errors (e.g., square roots of negative numbers)
+            if np.isnan(y_pred).any() or np.isinf(y_pred).any():
+                return 1e10 # Massive penalty so SciPy turns around
+                
+            mse = np.nanmean((y_data - y_pred)**2)
+            return mse
+        except Exception:
+            return 1e10
+
+    # 4. Run the BFGS Optimizer
+    # Start by guessing 1.0 for every constant
+    initial_guess = np.ones(len(constants))
+    
+    try:
+        res = minimize(objective, initial_guess, method='BFGS')
+        best_c = res.x
+        best_mse = res.fun
+    except Exception:
+        # If the optimizer completely crashes, return infinity error
+        return float('inf'), expr
+
+    # 5. Substitute the optimized decimals back into the SymPy equation
+    optimized_expr = expr.subs({c: val for c, val in zip(constants, best_c)})
+    
+    return best_mse, optimized_expr
+
+
 # ── Exact Symbolic Equivalence ────────────────────────────────────────────────
 
 def verify_exact(
@@ -279,5 +347,19 @@ if __name__ == '__main__':
     assert verify_exact('x + y', 'y + x', ['x', 'y']) == True
     assert verify_exact('x + y', 'x * y', ['x', 'y']) == False
     print('Exact verification: OK')
+
+    # Test fit_constants_with_scipy
+    c1, c2, x1 = sympy.symbols('c1 c2 x1')
+    expr_test = c1 * sympy.sin(c2 * x1)
+    X_test = np.linspace(0, 5, 100).reshape(-1, 1).astype(np.float32)
+    y_test = 2.5 * np.sin(1.2 * X_test.flatten()).astype(np.float32)
+    
+    mse, opt_expr = fit_constants_with_scipy(expr_test, X_test, y_test, ['x1'])
+    assert mse < 1e-5
+    # Check if constants are roughly correct (2.5 and 1.2)
+    const_vals = [float(val) for val in opt_expr.atoms(sympy.Float)]
+    assert any(abs(v - 2.5) < 0.1 for v in const_vals)
+    assert any(abs(v - 1.2) < 0.1 for v in const_vals)
+    print('fit_constants_with_scipy: OK')
 
     print('\nAll metrics tests passed.')

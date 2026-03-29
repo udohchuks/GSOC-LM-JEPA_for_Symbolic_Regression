@@ -22,6 +22,7 @@ from evaluation.metrics import (
     calculate_acc_tau,
     calculate_r2,
     fit_constants,
+    fit_constants_with_scipy,
     verify_exact,
     _evaluate_expr,
 )
@@ -42,6 +43,8 @@ def evaluate_dataset(
     dataset,
     device:     str   = 'cpu',
     n_restarts: int   = 3,
+    n_candidates: int = 1,
+    temperature: float = 0.8,
     verbose:    bool  = True,
 ) -> Dict:
     """
@@ -63,6 +66,8 @@ def evaluate_dataset(
                 eq=eq,
                 device=device,
                 n_restarts=n_restarts,
+                n_candidates=n_candidates,
+                temperature=temperature,
             )
             results.append(result)
         except Exception as e:
@@ -97,7 +102,7 @@ def _failed_result(eq) -> dict:
 
 # ── Per-equation evaluation ──────────────────────────────────────────────────
 
-def _evaluate_one(model, eq, device, n_restarts) -> dict:
+def _evaluate_one(model, eq, device, n_restarts, n_candidates=1, temperature=0.8) -> dict:
     """Full evaluation for one AIF equation with all metric categories."""
     import torch
 
@@ -111,60 +116,82 @@ def _evaluate_one(model, eq, device, n_restarts) -> dict:
     # ── 1. Prepare model inputs ───────────────────────────────────────────
     X_t, unit_idx, var_mask = _prepare_model_inputs(eq, model, device)
 
-    # ── 2. Generate formula (with latency timing) ─────────────────────────
+    # ── 2. Generate formula candidates ────────────────────────────────────
     t0 = time.perf_counter()
     with torch.no_grad():
         z_context = model(X_t, unit_idx, var_mask)
-        generated = model.generate(z_context, unit_idx)
+        if n_candidates > 1:
+            # Expand context for batch generation
+            z_context_exp = z_context.expand(n_candidates, -1, -1)
+            unit_idx_exp = unit_idx.expand(n_candidates, -1, -1)
+            generated = model.generate(z_context_exp, unit_idx_exp, greedy=False, temperature=temperature)
+        else:
+            generated = model.generate(z_context, unit_idx, greedy=True)
     latency_generate = time.perf_counter() - t0
 
-    token_ids = generated[0].cpu().tolist()
-    tokens = decode_formula(token_ids, strip_special=True)
-    valid_rpn = is_valid_rpn(tokens)
+    # Deduplicate unique skeletons (Pro-Tip from the user!)
+    unique_skeletons = {}
+    valid_tokens_list = []
+    
+    for i in range(n_candidates):
+        token_ids = generated[i].cpu().tolist()
+        tokens = decode_formula(token_ids, strip_special=True)
+        if tokens and is_valid_rpn(tokens):
+            try:
+                skeleton = rpn_to_sympy(tokens)
+                skel_str = str(skeleton)
+                if skel_str not in unique_skeletons:
+                    unique_skeletons[skel_str] = (skeleton, tokens)
+                valid_tokens_list.append(tokens)
+            except Exception:
+                continue
 
-    if not tokens or not valid_rpn:
+    if not unique_skeletons:
         result = _failed_result(eq)
-        result['valid_rpn'] = valid_rpn
         result['latency_generate_s'] = latency_generate
         return result
 
-    # ── 3. Pre-BFGS R² (evaluate with c1=c2=...=1) ───────────────────────
+    # Standard "best-guess" tokens for backward compatibility in the result dict
+    # We'll use the tokens from the first candidate (highest likelihood if greedy/low-temp)
+    best_tokens = valid_tokens_list[0] if valid_tokens_list else []
+    valid_rpn = len(valid_tokens_list) > 0
+
+    # ── 3. Post-BFGS Optimization (pick best candidate) ───────────────────
+    print(f"    Fitting constants for {len(unique_skeletons)} unique candidates...")
+    t1 = time.perf_counter()
+    best_mse = float('inf')
+    best_expr = None
+    best_tokens_final = None
+
+    for skel_str, (skeleton, tokens) in unique_skeletons.items():
+        mse, optimized_expr = fit_constants_with_scipy(skeleton, X_raw, y, eq.var_names)
+        if mse < best_mse:
+            best_mse = mse
+            best_expr = optimized_expr
+            best_tokens_final = tokens
+
+    latency_bfgs = time.perf_counter() - t1
+    r2_post = calculate_r2(y, _evaluate_expr(best_expr, eq.var_names, X_raw)) if best_expr else -np.inf
+
+    # ── 4. Pre-BFGS R² (for reporting) ───────────────────────────────────
+    # (Using the best final skeleton but with constants=1.0)
     try:
-        expr_pre = rpn_to_sympy(tokens)
-        y_pred_pre = _evaluate_expr(expr_pre, eq.var_names, X_raw)
-        if np.all(np.isfinite(y_pred_pre)):
-            r2_pre = calculate_r2(y, y_pred_pre)
-        else:
-            r2_pre = -np.inf
+        y_pred_pre = _evaluate_expr(best_expr.subs({s: 1.0 for s in best_expr.free_symbols if str(s).startswith('c')}), eq.var_names, X_raw)
+        r2_pre = calculate_r2(y, y_pred_pre)
     except Exception:
         r2_pre = -np.inf
 
-    # ── 4. Post-BFGS R² (fit constants) ───────────────────────────────────
-    t1 = time.perf_counter()
-    constants, r2_post = fit_constants(
-        tokens, eq.var_names, X_raw, y, n_restarts=n_restarts,
-    )
-    latency_bfgs = time.perf_counter() - t1
-
     # ── 5. Node count (complexity) ────────────────────────────────────────
     try:
-        expr = rpn_to_sympy(tokens)
-        node_count = calculate_node_count(expr)
+        node_count = calculate_node_count(best_expr)
     except Exception:
-        node_count = len(tokens)
+        node_count = len(best_tokens_final) if best_tokens_final else 0
 
     # ── 6. Accuracy to tolerance ──────────────────────────────────────────
     acc_tau_results = {}
     try:
-        if constants and r2_post > -np.inf:
-            # Re-evaluate with best constants for Acc_τ
-            expr_fitted = rpn_to_sympy(tokens)
-            symbols = [sympy.Symbol(f'x{i+1}') for i in range(n_vars)]
-            const_syms = [sympy.Symbol(c) for c in sorted(constants.keys())]
-            all_syms = symbols + const_syms
-            f_eval = sympy.lambdify(all_syms, expr_fitted, modules='numpy')
-            args = list(X_raw.T) + [constants[c] for c in sorted(constants.keys())]
-            y_pred_fitted = np.asarray(f_eval(*args), dtype=np.float64)
+        if best_expr and r2_post > -np.inf:
+            y_pred_fitted = _evaluate_expr(best_expr, eq.var_names, X_raw)
         elif r2_pre > -np.inf:
             y_pred_fitted = y_pred_pre
         else:
@@ -178,32 +205,27 @@ def _evaluate_one(model, eq, device, n_restarts) -> dict:
     except Exception:
         acc_tau_results = {tau: 0.0 for tau in TAU_THRESHOLDS}
 
-    # ── 7. Exact equivalence check ────────────────────────────────────────
     exact = False
     predicted_str = None
     try:
-        if constants:
-            expr_with_consts = rpn_to_sympy(tokens)
-            for c_name, c_val in constants.items():
-                expr_with_consts = expr_with_consts.subs(
-                    sympy.Symbol(c_name), sympy.Float(c_val)
-                )
-            predicted_str = str(sympy.simplify(expr_with_consts))
-        else:
-            predicted_str = str(sympy.simplify(rpn_to_sympy(tokens)))
-
-        if predicted_str:
+        if best_expr:
+            predicted_str = str(sympy.simplify(best_expr))
             exact = verify_exact(predicted_str, eq.formula_str, eq.var_names)
     except Exception:
         pass
 
     # ── 8. Dimensional validity ───────────────────────────────────────────
-    dim_valid = _check_dimensional_validity(tokens, eq.var_names)
+    dim_valid = _check_dimensional_validity(best_tokens_final, eq.var_names)
 
     # ── 9. Stress tests ──────────────────────────────────────────────────
-    noise_r2 = _test_noise_tolerance(tokens, eq, X_raw, y, constants)
+    # Note: Stress tests still use existing logic but with best_tokens_final.
+    # To avoid complex SymPy extraction of BFGS-fitted constants, we re-run 
+    # a quick fit_constants on the best skeleton to get the dict format.
+    stress_constants, _ = fit_constants(best_tokens_final, eq.var_names, X_raw, y, n_restarts=1)
+
+    noise_r2 = _test_noise_tolerance(best_tokens_final, eq, X_raw, y, stress_constants)
     data_size_r2 = _test_data_efficiency(model, eq, device, n_restarts)
-    extrap_r2 = _test_extrapolation(tokens, eq, constants)
+    extrap_r2 = _test_extrapolation(best_tokens_final, eq, stress_constants)
 
     return {
         'eq_id':              eq.eq_id,
@@ -211,6 +233,7 @@ def _evaluate_one(model, eq, device, n_restarts) -> dict:
         'exact':              exact,
         'r2_pre_bfgs':        r2_pre,
         'r2_post_bfgs':       r2_post,
+        'mse':                best_mse,
         'valid_rpn':          valid_rpn,
         'dim_valid':          dim_valid,
         'node_count':         node_count,
@@ -220,7 +243,7 @@ def _evaluate_one(model, eq, device, n_restarts) -> dict:
         'noise_r2':           noise_r2,
         'data_size_r2':       data_size_r2,
         'extrap_r2':          extrap_r2,
-        'tokens':             tokens,
+        'tokens':             best_tokens_final,
         'predicted':          predicted_str,
     }
 
@@ -241,12 +264,13 @@ def _test_noise_tolerance(
     results = {}
     for eps in NOISE_LEVELS:
         try:
-            noise = np.random.randn(len(y)) * eps * np.std(y)
-            y_noisy = y + noise.astype(np.float32)
+            with np.errstate(all='ignore'):
+                noise = np.random.randn(len(y)) * eps * np.std(y)
+                y_noisy = y + noise.astype(np.float32)
 
-            # Re-fit constants on noisy data
-            _, r2 = fit_constants(tokens, eq.var_names, X_raw, y_noisy, n_restarts=2)
-            results[eps] = r2
+                # Re-fit constants on noisy data
+                _, r2 = fit_constants(tokens, eq.var_names, X_raw, y_noisy, n_restarts=2)
+                results[eps] = r2
         except Exception:
             results[eps] = -np.inf
     return results
@@ -326,12 +350,14 @@ def _test_data_efficiency(
 
             symbols = [sympy.Symbol(f'x{i+1}') for i in range(eq.n_vars)]
             f_eval = sympy.lambdify(symbols, expr, modules='numpy')
-            y_pred_full = np.asarray(f_eval(*X_raw.T), dtype=np.float64)
+            
+            with np.errstate(all='ignore'):
+                y_pred_full = np.asarray(f_eval(*X_raw.T), dtype=np.float64)
 
-            if np.all(np.isfinite(y_pred_full)):
-                results[n_points] = calculate_r2(y, y_pred_full)
-            else:
-                results[n_points] = -np.inf
+                if np.all(np.isfinite(y_pred_full)):
+                    results[n_points] = calculate_r2(y, y_pred_full)
+                else:
+                    results[n_points] = -np.inf
 
         except Exception:
             results[n_points] = -np.inf
@@ -383,12 +409,14 @@ def _test_extrapolation(
 
         symbols_pred = [sympy.Symbol(f'x{i+1}') for i in range(n_vars)]
         f_pred = sympy.lambdify(symbols_pred, pred_expr, modules='numpy')
-        y_pred_ood = np.asarray(f_pred(*X_ood.T), dtype=np.float64)
+        
+        with np.errstate(all='ignore'):
+            y_pred_ood = np.asarray(f_pred(*X_ood.T), dtype=np.float64)
 
-        if not np.all(np.isfinite(y_pred_ood)):
-            return -np.inf
+            if not np.all(np.isfinite(y_pred_ood)):
+                return -np.inf
 
-        return calculate_r2(y_ood, y_pred_ood)
+            return calculate_r2(y_ood, y_pred_ood)
     except Exception:
         return -np.inf
 

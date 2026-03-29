@@ -15,6 +15,10 @@ def main():
                         help="'eval' for full Feynman suite, 'predict' for single equation")
     parser.add_argument("--id", type=str, default="I.6.2a", help="Equation ID to predict")
     parser.add_argument("--output_dir", type=str, default="results", help="Output directory")
+    parser.add_argument("--n_candidates", type=int, default=1, 
+                        help="Number of candidates to sample (default 1 = greedy)")
+    parser.add_argument("--temperature", type=float, default=0.8,
+                        help="Sampling temperature (default 0.8)")
     
     args = parser.parse_args()
 
@@ -41,12 +45,17 @@ def main():
     if args.mode == "predict":
         # Run Single Prediction
         print(f"🎯 Predicting equation: {args.id}...")
-        sample = evaluator.predict_sample_by_id(args.id)
+        sample = evaluator.predict_sample_by_id(
+            args.id, 
+            n_candidates=args.n_candidates,
+            temperature=args.temperature
+        )
         if sample:
             print(f"\n--- Prediction Result ---")
             print(f"ID:           {sample['id']}")
             print(f"Ground Truth: {sample['gt']}")
             print(f"Prediction:   {sample['pred']}")
+            print(f"MSE:          {sample['mse']:.6f}")
             print(f"RPN Tokens:   {' '.join(sample['tokens'])}")
             print(f"Exact:        {sample['exact']}")
         else:
@@ -55,7 +64,12 @@ def main():
     elif args.mode == "eval":
         # Run Full AIF Evaluation
         print(f"📈 Running full AI Feynman evaluation...")
-        metrics = evaluator.run_evaluation(output_dir=args.output_dir, verbose=True)
+        metrics = evaluator.run_evaluation(
+            output_dir=args.output_dir, 
+            verbose=True, 
+            n_candidates=args.n_candidates,
+            temperature=args.temperature
+        )
         print_results(metrics)
         print(f"Full report saved to: {args.output_dir}/evaluation_report.md")
 

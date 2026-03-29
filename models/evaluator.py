@@ -69,7 +69,13 @@ class ModelEvaluator:
         self.model = load_inference_model(config_path, ckpt_path, self.device)
         self.model.eval()
 
-    def run_evaluation(self, output_dir: Optional[str] = None, verbose: bool = True) -> Dict:
+    def run_evaluation(
+        self, 
+        output_dir: Optional[str] = None, 
+        verbose: bool = True,
+        n_candidates: int = 1,
+        temperature: float = 0.8
+    ) -> Dict:
         """
         Runs the full AI Feynman evaluation suite.
         
@@ -89,7 +95,14 @@ class ModelEvaluator:
         )
         
         print("Starting comprehensive evaluation...")
-        metrics = evaluate_dataset(self.model, loader.dataset, device=self.device, verbose=verbose)
+        metrics = evaluate_dataset(
+            self.model, 
+            loader.dataset, 
+            device=self.device, 
+            verbose=verbose,
+            n_candidates=n_candidates,
+            temperature=temperature
+        )
         
         if output_dir:
             self._save_results(metrics, Path(output_dir), loader.dataset)
@@ -136,7 +149,7 @@ class ModelEvaluator:
         
         print(f"Results and report saved to: {out_path}")
 
-    def predict_sample_by_id(self, eq_id: str) -> Optional[Dict]:
+    def predict_sample_by_id(self, eq_id: str, n_candidates: int = 1, temperature: float = 0.8) -> Optional[Dict]:
         """Runs inference on a specific equation ID from the AIF dataset."""
         loader = build_aif_dataloader(
             csv_path=self.config['data']['csv_path'],
@@ -146,33 +159,27 @@ class ModelEvaluator:
             shuffle=False
         )
         
+        from evaluation.evaluate import _evaluate_one
+
         for eq in loader.dataset.equations:
             if eq.eq_id == eq_id:
-                # Prepare inputs (similar to evaluation/_evaluate_one)
-                from evaluation.evaluate import _prepare_model_inputs
-                X_t, unit_idx, var_mask = _prepare_model_inputs(eq, self.model, self.device)
-                
-                with torch.no_grad():
-                    # Explicitly call encode() to avoid JEPA forward-pass trap
-                    z_context = self.model.encode(X_t, unit_idx, var_mask)
-                    generated = self.model.generate(z_context, unit_idx)
-                
-                tokens = decode_formula(generated[0].cpu().tolist(), strip_special=True)
-                try:
-                    expr = rpn_to_sympy(tokens)
-                    pred_str = str(sympy.simplify(expr))
-                except:
-                    pred_str = "Error parsing RPN"
-                    
-                # Check for exact recovery
-                exact = verify_exact(pred_str, eq.formula_str, eq.var_names)
+                # Use the unified evaluation helper for consistency
+                res = _evaluate_one(
+                    self.model, 
+                    eq, 
+                    self.device, 
+                    n_restarts=3, 
+                    n_candidates=n_candidates, 
+                    temperature=temperature
+                )
                 
                 return {
                     'id': eq_id,
                     'gt': eq.formula_str,
-                    'pred': pred_str,
-                    'tokens': tokens,
-                    'exact': exact
+                    'pred': res['predicted'],
+                    'tokens': res['tokens'],
+                    'exact': res['exact'],
+                    'mse': res.get('mse', -1)
                 }
         return None
 
