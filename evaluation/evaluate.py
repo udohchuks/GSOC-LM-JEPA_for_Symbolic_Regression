@@ -122,7 +122,8 @@ def _evaluate_one(model, eq, device, n_restarts, n_candidates=1, temperature=0.8
         z_context = model(X_t, unit_idx, var_mask)
         if n_candidates > 1:
             # Expand context for batch generation
-            z_context_exp = z_context.expand(n_candidates, -1, -1)
+            # [1, 256] -> [n_candidates, 256] (stays 2D for RPNDecoder.forward)
+            z_context_exp = z_context.expand(n_candidates, -1)
             unit_idx_exp = unit_idx.expand(n_candidates, -1, -1)
             generated = model.generate(z_context_exp, unit_idx_exp, greedy=False, temperature=temperature)
         else:
