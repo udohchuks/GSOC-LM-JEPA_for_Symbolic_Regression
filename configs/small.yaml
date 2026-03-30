@@ -19,8 +19,8 @@ data:
   max_n_vars:  7                        # Reduced padding (vs 9)
   batch_size:  64                       # Larger batches for stability
   num_workers: 2                        # DataLoader workers
-  chunk_size:  500                      # Larger chunks (fewer files)
-  max_cache_size: 8                     # Smaller cache (less RAM)
+  chunk_size:  100                      # Smaller chunks (more frequent saves, easier debugging)
+  max_cache_size: 16                    # Larger cache for more chunks
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
