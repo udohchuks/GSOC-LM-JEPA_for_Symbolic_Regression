@@ -163,7 +163,7 @@ def main():
     run_name = cfg_log.get('run_name', default_name)
     
     logger = TensorBoardLogger(
-        "tb_logs",
+        "/content/drive/MyDrive/SymbolicRegression/tb_logs",  # Save logs to Drive
         name=run_name,
         log_graph=False,
     )

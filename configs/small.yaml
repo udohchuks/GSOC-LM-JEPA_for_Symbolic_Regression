@@ -86,7 +86,7 @@ logging:
 
 # ── Checkpointing ─────────────────────────────────────────────────────────────
 checkpoint:
-  dirpath: "checkpoints_small/"
+  dirpath: "/content/drive/MyDrive/SymbolicRegression/checkpoints/"  # Save to Drive
   save_top_k: 3
   monitor: "val/total"
   mode: "min"
