@@ -88,6 +88,7 @@ def _failed_result(eq) -> dict:
         'n_vars': eq.n_vars,
         'r2': -np.inf,
         'symbolic_accuracy': False,
+        'constant_recovery': 0.0,
         'ned': 1.0,
         'node_count': 0,
         'latency_s': 0.0,
@@ -202,20 +203,21 @@ def _prepare_model_inputs(eq, model, device):
         from data.utils import to_ieee754_16bit
         X_bits = to_ieee754_16bit(X_bits)
 
-    X_t = torch.from_numpy(X_bits).unsqueeze(0).to(device)
+    model_dtype = next(model.parameters()).dtype
+    X_t = torch.from_numpy(X_bits).unsqueeze(0).to(device=device, dtype=model_dtype)
     unit_idx = torch.from_numpy(eq.unit_matrix_idx).long().unsqueeze(0).to(device)
 
     max_n = model.max_n_vars
     pad = max_n - eq.n_vars
 
     if pad > 0:
-        # Match input dtype (float16)
-        pad_x = torch.zeros(1, X_t.shape[1], pad, 16, device=device, dtype=X_t.dtype)
+        # Match input dtype
+        pad_x = torch.zeros(1, X_t.shape[1], pad, 16, device=device, dtype=model_dtype)
         X_t = torch.cat([X_t, pad_x], dim=2)
         pad_u = torch.full((1, pad, 5), 4, dtype=torch.long, device=device)
         unit_idx = torch.cat([unit_idx, pad_u], dim=1)
 
-    var_mask = torch.zeros(1, max_n, device=device)
+    var_mask = torch.zeros(1, max_n, device=device, dtype=model_dtype)
     var_mask[:, :eq.n_vars] = 1.0
 
     return X_t, unit_idx, var_mask
