@@ -15,6 +15,11 @@ Pipeline per equation:
 
 Expected yield: ~10% of sampled trees pass unit consistency.
 Run offline, parallelised across CPU cores.
+
+Parallelization:
+    Uses multiprocessing.Pool with imap_unordered for efficient worker utilization.
+    Tasks are generated on-demand via itertools.count() to avoid wasted computation.
+    Workers stop immediately when target equation count is reached.
 """
 
 from __future__ import annotations
@@ -1407,8 +1412,10 @@ def _generate_corpus(
     worker_with_args = partial(_worker_fn, n_data_points)
 
     with mp.Pool(num_workers) as pool:
-        # We use imap_unordered for better efficiency
-        results = pool.imap_unordered(worker_with_args, range(n_equations * 10)) # overkill range
+        # Use count() for infinite task generation - workers pull tasks on-demand
+        # This avoids pre-creating 10× tasks and wasting CPU cycles
+        from itertools import count
+        results = pool.imap_unordered(worker_with_args, count())
 
         try:
             from tqdm import tqdm

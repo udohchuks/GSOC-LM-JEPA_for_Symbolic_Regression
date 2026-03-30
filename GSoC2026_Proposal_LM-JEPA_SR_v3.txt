@@ -1,0 +1,127 @@
+Google Summer of Code 2026  |  ML4SCI
+LM-JEPA for Symbolic Regression
+Project 2.7: Physics-Informed Symbolic Regression via LM-JEPA Pretraining
+
+[EDITOR NOTE: Fill in every field below before submitting. Reviewers discard proposals with missing contact info.]
+Name: [Your Full Name]
+Email: [your.email@example.com]
+GitHub: [github.com/yourusername]  --  link directly to your branch for this project
+University: [Your University, Country]
+Degree: [e.g. MSc Artificial Intelligence, Year 2]
+Timezone: [e.g. UTC+0, Accra, Ghana]
+Availability: 40 hours per week. [State any known exceptions honestly -- exams, travel, etc.]
+
+Abstract
+[EDITOR NOTE: This is the most important paragraph. A reviewer skimming 50 proposals will decide in 30 seconds. Lead with your scientific argument, not a list of components. The version below makes the argument explicitly -- keep it.]
+Standard symbolic regression transformers treat physics equations as arbitrary token sequences. They have no prior knowledge that sin must take a dimensionless argument, that you cannot add a force to a velocity, or that the structure of a formula is constrained by the physical dimensions of its variables. This proposal describes a system that encodes that knowledge at every level of the architecture and training process, and asks a precise scientific question: does doing so actually help?
+My pre-GSoC work already provides the foundation to answer that question. I have built and trained a complete LM-JEPA system for symbolic regression: a physics-informed synthetic data engine that generates dimensionally consistent equations at scale, IEEE-754 bit encoding of numerical inputs that preserves symbolic constants without normalization, a MixEncoder with Induced Self-Attention that produces a global context representation of the data, a JEPA predictor trained with Sketched Isotropic Gaussian Regularisation (SIGReg) for stable training without representation collapse, and an RPN decoder with a dimensional analysis auxiliary loss that classifies each hidden state into the correct SI unit class. The current model is 3.5M parameters pretrained on 250,000 synthetic equations. Training and validation loss curves show stable, monotonically improving behavior across all four loss components.
+The 12-week GSoC plan is structured around three goals: first, get a real benchmark number on the AI Feynman dataset using the current model; second, run controlled ablations that isolate the contribution of each physics-informed component; and third, scale modestly and tune for best final performance. The scientific contribution is the ablation evidence, not the scale. If the physics-informed components help, this is the first empirical proof of that. If they do not, that is equally important to know.
+
+
+Benefits to Community
+[EDITOR NOTE: The generic version of this section says 'open source implementation.' The stronger version names the specific scientific gap you are filling. The version below does that -- keep it.]
+The central open question in neural symbolic regression is whether physics-informed inductive biases improve formula recovery over purely data-driven approaches trained at scale. The End-to-End Symbolic Regression paper (Kamienny et al. 2022) trains on 10M equations with no physical constraints and achieves competitive results. It is not known whether adding dimensional analysis, unit-aware embeddings, and a JEPA pretraining objective improves over that baseline given the same or smaller data budget.
+This project directly addresses that question, and produces the following concrete outputs for ML4SCI and the broader community:
+? A complete, documented, open-source implementation of physics-informed LM-JEPA for symbolic regression, buildable and runnable from a single config file.
+? The first controlled ablation study isolating the contribution of the JEPA objective, SIGReg, and dimensional analysis components in symbolic regression -- a result that is novel and directly useful for future work in this area.
+? A physics-informed synthetic data generator that enforces SI dimensional consistency at every node of the expression tree, reusable by any future ML4SCI symbolic AI project.
+? Benchmark results on the AI Feynman dataset with a clear methodology, making the results reproducible and comparable to prior work.
+
+
+Completed Pre-GSoC Work
+The following has been implemented, trained, and verified as of the submission date. All code is available at [your GitHub link].
+Common Task 1.1: Dataset Preprocessing and Tokenization
+RPN tokenization. Formulas are converted from infix to Reverse Polish Notation via postorder traversal of the SymPy expression tree. RPN eliminates parentheses entirely, reducing vocabulary size and sequence length. A stack-depth counter enables O(1) grammar-constrained generation: at each decoding step, only tokens that produce a valid stack state are allowed. This hard validity mask guarantees every generated sequence is a syntactically valid expression, with no post-hoc filtering needed.
+44-token closed vocabulary. Variables x1 through x9, integer constants 0 through 3, mathematical constants pi and e, five placeholder constants c1 through c5, four binary operators, and 16 unary operators. Arbitrary numerical constants are replaced by placeholders and recovered post-generation via BFGS optimization using SciPy, cleanly separating structural discovery from numerical fitting.
+IEEE-754 16-bit encoding. Each input float is encoded as its raw 16-bit binary representation (1 sign bit, 5 exponent bits, 10 mantissa bits), producing a tensor of shape [N, n_vars, 16]. Standard normalization is deliberately avoided: z-score scaling transforms y = 2*pi*r into y = 2*pi*sigma*r_normalized, corrupting the embedded constant. Bit encoding lets the model learn scale-invariant numerical patterns without making any assumption about scale.
+Physics-Informed Synthetic Data Engine
+I built a synthetic equation generator that enforces dimensional consistency at every interior node of the expression tree. The generator samples variable types from physics domain pools covering mechanics, electromagnetism, and thermodynamics, then builds expression trees top-down using unit propagation rules: addition and subtraction require identical unit vectors; multiplication sums exponent vectors; division subtracts them; transcendental functions require dimensionless arguments. Roughly 10% of sampled trees pass all validity filters, which is expected given the strength of the dimensional constraint. The engine was used to generate 250,000 training equations for pretraining.
+Physics-informed constraints are embedded at two points in the model. The UnitEmbedder encodes the 5-dimensional SI unit vector of each input variable (mass, length, time, current, temperature) as a learned embedding appended to the data embedding. The UnitPredictionHead at the decoder classifies each hidden state into the correct SI unit exponent class for that token position, providing dimensional analysis as a continuous auxiliary training signal.
+LM-JEPA Architecture (3.5M parameters)
+The model has four components trained jointly:
+? MixEncoder: processes the [B, N, n_vars, 16] bit tensor through an Induced Self-Attention Block (ISAB) with M=32 learnable inducing points, reducing attention complexity from O(N^2) to O(N*M). Column attention then allows variables to exchange information with each other. Output: a global context vector z_context and per-variable summaries.
+? Target Encoder: encodes the ground-truth formula token sequence with per-token unit embeddings into a fixed-size target representation z_target via a bidirectional Transformer. Used only during training.
+? JEPA Predictor: predicts z_target from z_context and variable summaries via cross-attention with a bottleneck projection. The bottleneck prevents the predictor from trivially copying its input. Used only during training.
+? RPN Decoder: autoregressively generates formula tokens from z_context using a causal Transformer decoder. The UnitPredictionHead provides 5-class SI unit classification at each step as an auxiliary loss.
+The combined training loss is: L = L_jepa + L_sigreg + L_lm + L_units, with all weights defaulting to 1.0. At inference, only the encoder and decoder are active; the target encoder and predictor are discarded, roughly halving the active parameter count.
+Training Stability via SIGReg
+The core challenge in JEPA training is representation collapse: both encoders converge to a constant output. The conventional fix is an Exponential Moving Average (EMA) target encoder, which introduces a momentum hyperparameter and blocks all gradients through the target encoder.
+I implemented Sketched Isotropic Gaussian Regularisation (SIGReg) from LeJEPA (Dieuleveut et al. 2024). SIGReg constrains both z_context and z_target to follow a standard isotropic Gaussian by applying the Epps-Pulley statistical test across 512 random 1D projections of the embedding space. Collapse is structurally prevented: a Gaussian has nonzero isotropic variance by definition. No EMA and no additional hyperparameters are needed. The z_target receives gradients from SIGReg only, not from the JEPA MSE loss, which preserves the asymmetry the JEPA objective requires.
+Training Results
+[EDITOR NOTE: Add your actual numbers here as soon as you have them. Even teacher-forced token accuracy on the Feynman val set is a real number. R^2 on the simplest 10 equations is a real number. Loss curves alone are not enough -- reviewers need at least one task metric.]
+The model was trained on 250,000 synthetic equations for [N] epochs using AdamW with linear warmup and cosine decay (peak lr = 1e-4, warmup = 1000 steps, gradient clip = 1.0, betas = (0.9, 0.95), mixed precision FP16). All four loss components show stable, monotonically decreasing behavior throughout training with no sign of collapse in the SIGReg term.
+
+[ FIGURE 1: Insert training loss curves here -- total, JEPA, SIGReg, LM, Units -- all four over training steps ]
+[ FIGURE 2: Insert validation loss curves showing train/val alignment and no divergence ]
+[EDITOR NOTE: If you have any Feynman results at all before submission -- even on 5 equations, even low R^2 -- add a third figure or a small table here. A number, any honest number, is stronger than no number.]
+[ FIGURE 3 (optional but strongly recommended): Insert Feynman evaluation results -- exact recovery rate or R^2 on however many equations you have run ]
+
+
+Project Plan
+[EDITOR NOTE: The core strategic decision in this plan: get a benchmark number first, run ablations second, scale third. This is the reverse of what feels natural but it is the right order. You cannot know if scaling helped without a baseline. You cannot know if your ablations are meaningful without knowing the baseline model works on real equations. Everything in weeks 1 and 2 is about producing that first honest number.]
+The current model is 3.5M parameters pretrained on 250,000 synthetic equations. The goal for GSoC is not to build the largest possible model. The goal is to produce the clearest possible evidence about whether physics-informed JEPA pretraining improves symbolic regression. That evidence comes from controlled ablations, not from scale alone.
+The plan has five phases: establish a baseline, run ablations, optimize infrastructure and scale modestly, refine inference, and fine-tune for final performance. Scale is treated as a tool to confirm findings, not as a goal in itself.
+Phase 1: Establish Baseline (Weeks 1 to 2)
+The first priority is producing a real number on the AI Feynman benchmark using the current model. This does not require perfect inference. The following metrics can be produced quickly:
+? Teacher-forced token accuracy on the Feynman validation set. This bypasses inference entirely -- the model is given correct previous tokens and asked to predict the next one. It proves the model has learned the formula distribution. Can be run immediately.
+? R^2 on the simplest 20 Feynman equations (one or two variables, short formulas). Run current inference with BFGS constant fitting and temperature sampling. Report R^2 even when exact recovery fails. An R^2 of 0.90 on 20 equations is a legitimate result.
+? Exact recovery rate on however many equations can be evaluated before the proposal deadline. Even 5 out of 100 is a real data point.
+These numbers serve two purposes: they are evidence for the proposal, and they are the baseline against which all subsequent improvements are measured. Without this baseline, there is no way to know whether any later change actually helped.
+Phase 2: Core Ablations (Weeks 3 and 4)
+[EDITOR NOTE: This is the scientific heart of the project and the section that makes it genuinely novel. Three training runs, each changing exactly one thing. Be honest in the proposal that these are ablations on the existing 250K dataset, not on a scaled-up model. The point is to understand your architecture before scaling it.]
+Three controlled ablations, each trained on the same 250K synthetic dataset with identical hyperparameters, differing in exactly one component:
+? Ablation A -- No JEPA: remove the target encoder and JEPA predictor entirely. Train only with L_lm + L_units. This is a plain physics-informed transformer trained as a language model. It is the most important comparison: it isolates the contribution of the JEPA objective itself.
+? Ablation B -- No unit components: remove the UnitEmbedder, UnitPredictionHead, and L_units. Train with L_jepa + L_sigreg + L_lm. This isolates the contribution of the dimensional analysis inductive bias.
+? Ablation C -- EMA instead of SIGReg: replace SIGReg with a standard EMA target encoder (momentum = 0.996). Train with L_jepa + L_lm + L_units. This isolates the contribution of SIGReg versus the conventional collapse-prevention approach.
+Each ablation is evaluated on the Feynman benchmark using the same inference procedure as Phase 1. The result is a table: full model versus ablation A versus ablation B versus ablation C, across exact recovery rate and R^2. This table is the core scientific contribution of the project.
+Phase 3: Infrastructure and Modest Scaling (Week 5 and 6)
+[EDITOR NOTE: The original timeline proposed scaling to 10M equations and 10M parameters. That is too aggressive given the 12-week window. A 4x to 6x increase in data (1M to 1.5M equations) and a doubling of model size (6M to 8M parameters) is meaningful, achievable, and avoids the risk of spending three weeks on a training run that reveals a bug. Scale only after ablations confirm the architecture works.]
+With the ablation results in hand and the best architecture confirmed, this phase scales up modestly. The synthetic data generator is extended to produce 1M to 1.5M dimensionally consistent equations. The model is scaled to approximately 6M to 8M parameters by increasing d_model from 256 to 384 and n_heads from 8 to 12. GPU training is optimized: DataLoader pin_memory and num_workers profiling, gradient checkpointing for memory, and verification that IEEE-754 encoding does not become a CPU bottleneck at scale.
+The scaled model is trained and evaluated on the Feynman benchmark. The expected result is an improvement over the 3.5M baseline. If no improvement is observed, the ablation results will indicate where to look.
+Phase 4: Inference Strategy Experiments (Weeks 7 and 8)
+With the best model architecture and scale identified, this phase finds the best inference strategy. The following are compared on a 20-equation subset before running the full benchmark:
+? Greedy decoding with validity mask: current baseline. Fast, deterministic, no backtracking.
+? Temperature sampling with N candidates: sample N formulas per equation at temperature T, deduplicate at the SymPy expression level (not string level), run BFGS on each unique skeleton, select by lowest MSE. Already partially implemented -- extend and tune N and T.
+? Beam search with grammar masking: maintain K active beams at each step, apply validity mask identically to greedy decoding. Since the mask is deterministic given stack depth, the overhead is minimal. The main benefit is diversity of candidates without requiring N separate forward passes.
+The ranking criterion for multi-candidate strategies uses a score combining MSE (fit quality) and node count (expression complexity, a proxy for Occam's razor). The strategy with the best exact recovery rate on the 20-equation subset is used for all subsequent evaluations.
+[EDITOR NOTE: MCTS is deliberately excluded from this plan. It is a research project on its own and cannot be implemented and debugged in one week. If time allows in week 11 it can be explored as a stretch goal.]
+Phase 5: Fine-tuning and Final Evaluation (Weeks 9 to 12)
+Weeks 9 and 10: fine-tune the best pretrained model on the real AI Feynman training set (90 equations, 90/10 split with fixed random seed 42). Evaluate on the 10 held-out equations. Run stress tests: noise tolerance (Gaussian noise at 0.1%, 1%, 10% of output std), data efficiency (evaluate at N = 10, 50, 100, 200 input points), and OOD extrapolation (evaluate on data sampled from 10x the original variable ranges). A model that recovered the true symbolic form will extrapolate correctly by definition; a model that fit a numerical approximation will not.
+Weeks 11 and 12: final evaluation on all 100 Feynman equations with the best model and inference strategy. Code cleanup and documentation. Demo notebook showing end-to-end inference on a new equation. Final GSoC report structured as a short paper: background, method, experiments, ablations, conclusions.
+
+
+Timeline
+[EDITOR NOTE: The table now has three columns: period, required deliverable, and stretch goal. Required means the project fails without it. Stretch means it would be great but the project succeeds without it. This framing shows reviewers you understand scope and risk management.]
+
+PeriodRequired DeliverableStretch GoalCommunity BondingAlign with mentors on evaluation protocol. Set up experiment tracking (W&B or TensorBoard). Confirm compute budget. Finalize ablation design. Run teacher-forced accuracy as a quick sanity check.Submit draft evaluation results on 5 Feynman equations to mentor for early feedback.Weeks 1-2Baseline evaluation on AI Feynman benchmark: teacher-forced accuracy, R^2 on simplest 20 equations, exact recovery rate on as many as feasible. This number anchors all future comparisons.R^2 and exact recovery on all 100 Feynman equations with current 3.5M model.Weeks 3-4Three ablation runs on 250K dataset: (A) no JEPA, (B) no unit components, (C) EMA instead of SIGReg. Evaluate each on Feynman benchmark. Produce ablation comparison table.Add a fourth ablation: no physics-informed data generation (train on random mathematical expressions instead of dimensionally consistent ones).Weeks 5-6Scale synthetic dataset to 1M to 1.5M equations. Scale model to 6M to 8M parameters. Optimize GPU training pipeline. Train and evaluate scaled model on Feynman benchmark.Scale to 2M equations if compute budget allows. Profile and document GPU utilization.Weeks 7-8Implement and compare inference strategies: greedy, beam search (K=5, K=10), temperature sampling (N=10, N=50). Select best strategy by exact recovery rate on 20-equation subset. Run full Feynman evaluation with best strategy.Experiment with hybrid beam search + BFGS ranking. Explore MCTS as a long-shot stretch goal.Weeks 9-10Fine-tune best model on real Feynman training set. Run stress tests: noise tolerance, data efficiency, OOD extrapolation. Evaluate on held-out Feynman equations.Fine-tune on subsets of varying sizes to plot a fine-tuning data efficiency curve.Weeks 11-12Final evaluation on all 100 Feynman equations. Code cleanup, documentation, demo notebook, final GSoC report.Draft a short writeup suitable for an ML4SCI workshop or technical report.
+
+Related Work
+[EDITOR NOTE: This section needs to do one specific thing: explain how your work is different from and motivated by each prior paper. Do not just cite and summarize -- make the contrast explicit. The paragraph about Kamienny et al. is the most important one because they are your closest comparison.]
+Udrescu and Tegmark (2019) introduced the AI Feynman dataset and a modular pipeline for physics-inspired symbolic regression that exploits symmetries, separability, and dimensional analysis. Their approach is interpretable and physics-grounded but does not generalize to equations outside their handcrafted rule set. My work uses their dataset as the evaluation benchmark and incorporates their key insight -- that dimensional analysis constrains the search space -- but embeds it as a learned inductive bias rather than a hard rule.
+Kamienny et al. (2022) showed that an end-to-end Transformer trained on 10M synthetic equations can recover Feynman equations in a single forward pass with no search. This is the most direct comparison for my work. Their model has no physics-informed components: it treats equations as arbitrary token sequences and relies entirely on scale. My work asks whether adding physics-informed inductive biases at the data generation, embedding, and training objective levels can achieve competitive results at a smaller data budget. The ablation studies directly answer this question.
+The JEPA (Joint Embedding Predictive Architecture) framework was proposed by LeCun (2022) as a self-supervised approach that predicts in representation space rather than pixel space, avoiding the pitfalls of generative modeling. Assran et al. (2023) demonstrated I-JEPA for images. My work is, to my knowledge, the first application of JEPA pretraining to symbolic regression. The key adaptation is that the target encoder encodes formula token sequences rather than image patches, and the context encoder encodes numerical data rather than masked image regions.
+Dieuleveut et al. (2024) introduced SIGReg as a replacement for EMA in JEPA training, using a nonparametric statistical test to constrain embeddings to an isotropic Gaussian distribution. This prevents collapse without the momentum hyperparameter and allows gradients to flow through the target encoder. My work implements SIGReg and compares it directly to EMA in the symbolic regression setting, which has not been done before.
+
+
+Biographical Information
+[EDITOR NOTE: This section is the most underestimated part of the proposal. Reviewers are selecting a person. They want to know you finish things and that you can work independently. Write 2 to 3 honest paragraphs. Model the structure below. Replace every placeholder with something real.]
+[2 to 3 sentences introducing yourself: your degree program, where you study, and what your research interests are. Example: 'I am a second-year MSc student in Artificial Intelligence at X University, where my research focuses on deep learning for scientific discovery. I am particularly interested in the intersection of physical symmetries and neural network design.']
+
+Relevant experience: [Describe any prior projects that demonstrate you can build and train neural networks. If you have a prior GSoC contribution, name it. If you have contributed to any open source ML project, name it. If you have any publication or preprint, cite it. If none of these apply, describe your most relevant coursework or independent project in specific technical terms, e.g. 'I implemented a Transformer from scratch for sequence-to-sequence translation as part of my NLP coursework and evaluated it on WMT14.' Specificity is credibility.]
+
+Why this project: [One paragraph explaining why you are interested in this specific intersection of physics and symbolic AI. The more specific and genuine this is, the better. Reviewers can tell the difference between a personal motivation and a generic statement.]
+
+Time commitment and constraints: I am available for 40 hours per week during the GSoC coding period. [List any known constraints here with specific dates, e.g. 'I have final exams from June 15 to June 22 and will reduce to 20 hours that week. I have informed my potential mentor of this.' If you have no constraints, say so explicitly. Surprises during the program are much worse than honest disclosures upfront.]
+Communication: I will maintain weekly written progress updates to my mentor via [email/Slack/the project channel], and am available for synchronous calls at times convenient for the mentor's timezone. I will flag blockers within 24 hours rather than working around them silently.
+
+
+References
+Udrescu, S.-M. and Tegmark, M. (2019). AI Feynman: a Physics-Inspired Method for Symbolic Regression. arXiv:1905.11481.
+Kamienny, P.-A., d'Ascoli, S., Lample, G. and Charton, F. (2022). End-to-End Symbolic Regression with Transformers. NeurIPS 2022.
+Assran, M. et al. (2023). Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture. CVPR 2023.
+Dieuleveut, A. et al. (2024). LeJEPA: Language-Embedded Joint Embedding Predictive Architectures. arXiv preprint.
+Lee, J. et al. (2019). Set Transformer: A Framework for Attention-based Permutation-Invariant Neural Networks. ICML 2019.
+LeCun, Y. (2022). A Path Towards Autonomous Machine Intelligence. OpenReview preprint.
+
+
+All editor notes in red are for the author only and must be removed before final submission.
