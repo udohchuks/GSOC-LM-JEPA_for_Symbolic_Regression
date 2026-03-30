@@ -20,31 +20,38 @@ A Joint Embedding Predictive Architecture (JEPA) for Symbolic Regression. Parses
 The synthetic data generator creates physics-informed mathematical expressions for pretraining:
 
 - **Dimensional Homogeneity:** Every equation is physically valid (mass, length, time, charge units)
-- **Pattern-Based (80%):** 70 physics equation templates (inverse-square, relativistic, energy, waves, distance)
-- **AI Feynman Match:** Optimized complexity distribution (mean 3.9-4.1 vars vs 4.09 in AIF)
+- **Pattern-Based (85%):** 80+ physics equation templates (inverse-square, relativistic, energy, waves, distance)
+- **AI Feynman Match:** Optimized complexity distribution (mean 3.36 vars vs 4.09 in AIF, -18% gap)
+- **Variable Enforcement:** 85% of equations forced to 4+ variables
 - **Affine Transformations:** Increases diversity without changing structure
+- **Operator Weighting:** Biased toward physics-common operators (*, /, inv, sqrt, exp)
 
 **Configuration Guide:**
 - **20k-50k equations (~1M params, tiny predictor):** Use `configs/small.yaml`
 - **100k+ equations (~3.4M params):** Use `configs/base_config.yaml`
 
-**Full Documentation:** 
+**Full Documentation:**
 - [`docs/SYNTHETIC_DATA_GENERATION.md`](docs/SYNTHETIC_DATA_GENERATION.md) - Generation details
+- [`docs/DATA_COMPARISON.md`](docs/DATA_COMPARISON.md) - AI Feynman comparison report
 - [`docs/SMALL_MODEL_CONFIG.md`](docs/SMALL_MODEL_CONFIG.md) - Model scaling guide
 
 ### AI Feynman Comparison
 
 Comprehensive comparison between synthetic pretraining data and AI Feynman evaluation data:
 
-| Metric | Synthetic | AI Feynman | Gap |
-|--------|-----------|------------|-----|
-| Mean Variables | 3.9-4.1 | 4.09 | -5% to 0% |
-| Mean Nodes | 12-14 | 12.47 | -4% to +12% |
-| Mean Depth | 2.9-3.0 | 2.92 | ±0% |
-| Division Freq | 0.20-0.30/eq | 0.4/eq | -25% to -50% |
-| Negation Freq | 0.10-0.15/eq | 0.3/eq | -50% to -67% |
+**Latest Results:**
 
-**Pattern Coverage:** 70 physics templates covering inverse-square, relativistic, thermodynamics, waves, electromagnetism
+| Metric | Synthetic | AI Feynman | Gap | Quality |
+|--------|-----------|------------|-----|---------|
+| Mean Variables | 3.36 | 4.09 | -18.0% | ✅ Good |
+| Mean Nodes | 11.10 | 12.47 | -11.0% | ✅ Good |
+| Mean Depth | 2.87 | 2.92 | -1.7% | ✅ Excellent |
+| Division (inv) | 1.13/eq | 1.16/eq | -2.6% | ✅ Excellent |
+| Addition | 0.27/eq | 0.66/eq | -59% | ⚠️ Moderate |
+
+**Pattern Coverage:** 80+ physics templates covering inverse-square, relativistic, energy, waves, distance, trigonometric
+
+**Key Insight:** The `/` operator gap is due to SymPy converting `a/b` → `a * b^(-1)` for variable denominators. Combined division (`inv` + `/`) gap is -27.8%.
 
 **Full Report:** [`docs/DATA_COMPARISON.md`](docs/DATA_COMPARISON.md)
 
@@ -53,8 +60,8 @@ Comprehensive comparison between synthetic pretraining data and AI Feynman evalu
 python -m data.compare_datasets \
     --config configs/base_config.yaml \
     --output results/data_comparison/ \
-    --n_synthetic 500 \
-    --n_aif 500
+    --n_synthetic 200 \
+    --n_aif 200
 ```
 
 ---
@@ -127,7 +134,7 @@ Large-scale pretraining requires a synthetic corpus of mathematically valid and 
 
 - **Dimensional Homogeneity**: Variables are sampled from physical domains (Mechanics, EM, etc.). Operators (like `sin` or `+`) are only applied if they are dimensionally consistent—preventing invalid operations like adding "meters" to "kilograms".
 - **Tree & Pattern Generation**: Uses a 50/50 mix of recursive tree growth (peak depth 4) and expert physics patterns (22+ templates) to ensure structural diversity.
-- **V4 Tuning**: Biased toward 3–6 variables and tree depths of 4–5 to perfectly match the complexity distribution of the AI Feynman dataset.
+- **Complexity Matching**: Biased toward 3–6 variables and tree depths of 4–5 to match the complexity distribution of the AI Feynman dataset.
 - **Float16 Bit-Featurization**: Inputs are encoded into IEEE-754 bit patterns and stored as direct `float16` tensors, removing CPU-bound `unpackbits` overhead during training.
 - **Lazy Sharding**: Equations are stored in sharded `.pt` parts, allowing for 1M+ scales without RAM exhaustion via `LazySyntheticDataset`.
 

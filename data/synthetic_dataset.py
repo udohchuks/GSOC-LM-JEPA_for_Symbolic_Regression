@@ -1469,6 +1469,9 @@ def _generate_corpus(
     n_attempted = 0
     chunk_count = 0 # Initialize here
     
+    # Track the original target for correct termination
+    n_equations_target = n_equations
+
     if cache_dir:
         existing_parts = list(Path(cache_dir).glob("part_*.pt"))
         if existing_parts:
@@ -1476,17 +1479,17 @@ def _generate_corpus(
             # This is fast and avoiding loading all files.
             current_count = len(existing_parts) * chunk_size
             chunk_count = max([int(p.stem.split('_')[1]) for p in existing_parts]) + 1
-            
+
             # Adjust n_equations to be the *remaining* amount needed
-            needed = max(0, n_equations - current_count)
+            needed = max(0, n_equations_target - current_count)
             if needed == 0:
                 if verbose:
-                    print(f"Cache at {cache_dir} already contains ~{current_count} equations. Target {n_equations} reached.")
+                    print(f"Cache at {cache_dir} already contains ~{current_count} equations. Target {n_equations_target} reached.")
                 return None
-            
+
             if verbose:
-                print(f"Resuming: found ~{current_count} equations. Generating {needed} more to reach {n_equations}.")
-            n_equations = needed
+                print(f"Resuming: found ~{current_count} equations. Generating {needed} more to reach {n_equations_target}.")
+            n_equations = needed  # Only generate the remaining amount
         else:
             chunk_count = 0
     
@@ -1548,7 +1551,8 @@ def _generate_corpus(
                     equations = [] # Clear RAM!
                     chunk_count += 1
 
-            if (len(equations) + chunk_count * chunk_size) >= n_equations:
+            # Check if we've generated enough NEW equations (n_equations is the remaining needed)
+            if len(equations) >= n_equations:
                 break
 
         # Save remainder
@@ -1562,20 +1566,36 @@ def _generate_corpus(
             pbar.close()
 
     if verbose:
-        total = chunk_count * chunk_size + len(equations)
-        rate = (total / n_attempted * 100) if n_attempted > 0 else 0
-        print(f"Done: {total} equations from {n_attempted} attempts ({rate:.1f}% yield)")
+        total_new = chunk_count * chunk_size + len(equations)
+        total_all = total_new + (chunk_count * chunk_size if cache_dir and existing_parts else 0)
+        # Recalculate existing count for accurate reporting
+        if cache_dir and 'existing_parts' in locals():
+            existing_count = len(existing_parts) * chunk_size
+        else:
+            existing_count = 0
+        total_all = existing_count + total_new
+        rate = (total_new / n_attempted * 100) if n_attempted > 0 else 0
+        print(f"Done: {total_new} new equations from {n_attempted} attempts ({rate:.1f}% yield)")
+        if existing_count > 0:
+            print(f"Total in cache (including previous): {total_all} equations")
 
     # Save metadata manifest for fast LazySyntheticDataset startup
     if cache_dir:
         from pathlib import Path
-        
+
+        # Calculate existing count for manifest
+        if cache_dir and 'existing_parts' in locals():
+            existing_count = len(existing_parts) * chunk_size
+        else:
+            existing_count = 0
+
         manifest = {
             'files': [f"part_{i}.pt" for i in range(chunk_count)],
             'sizes': [chunk_size] * chunk_count,
             'total_equations': chunk_count * chunk_size,
+            'total_equations_all': existing_count + chunk_count * chunk_size,
             'chunk_size': chunk_size,
-            'n_equations_target': n_equations,
+            'n_equations_target': n_equations_target,
         }
         manifest_path = Path(cache_dir) / "metadata_manifest.pt"
         torch.save(manifest, str(manifest_path))
