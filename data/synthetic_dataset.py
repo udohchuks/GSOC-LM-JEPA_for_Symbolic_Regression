@@ -21,6 +21,7 @@ from __future__ import annotations
 import numpy as np
 import sympy
 import torch
+import os
 from typing import List, Optional, Tuple, Dict
 from dataclasses import dataclass, field
 import random
@@ -1393,9 +1394,14 @@ def _generate_corpus(
         print(f"Generating {n_equations} equations using {num_workers} workers...")
         if cache_dir:
             print(f"Incremental saving enabled: {chunk_size} equations per part.")
+            print(f"Cache directory: {cache_dir}")
 
     if cache_dir:
-        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        cache_path = Path(cache_dir)
+        cache_path.mkdir(parents=True, exist_ok=True)
+        print(f"✅ Cache directory created: {cache_path}")
+        print(f"   Directory exists: {cache_path.exists()}")
+        print(f"   Directory writable: {os.access(cache_path, os.W_OK)}")
 
     # Worker function with fixed n_data_points
     worker_with_args = partial(_worker_fn, n_data_points)
@@ -1426,8 +1432,10 @@ def _generate_corpus(
                     part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
                     tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
                     # Atomic write: save to .tmp and rename
+                    print(f"\n💾 Saving chunk {chunk_count} ({len(equations)} equations) to {part_path}...")
                     torch.save(equations, str(tmp_path))
                     tmp_path.replace(part_path)
+                    print(f"   ✅ Saved {part_path.name} ({tmp_path.stat().st_size / 1024 / 1024:.1f} MB)")
 
                     # Cooldown for filesystem sync (especially on cloud storage)
                     import time
