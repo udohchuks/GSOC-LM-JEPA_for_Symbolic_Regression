@@ -213,7 +213,7 @@ def preprocess_equation(
         PreprocessedEquation or None if any step failed.
     """
     # ── Step 1: Find and load data file ──────────────────────────────────
-    
+
     data_dir = Path(data_dir)
     data_path = data_dir / meta.eq_id
 
@@ -221,7 +221,8 @@ def preprocess_equation(
         print(
             f"Data file not found: {data_path}\n"
             f"  Expected a file named exactly '{meta.eq_id}' "
-            f"with no extension in {data_dir}"
+            f"with no extension in {data_dir}\n"
+            f"  FIX: Run the 'Download AI Feynman Dataset' cell in the training notebook first!"
         )
         return None
 
