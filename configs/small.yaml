@@ -37,25 +37,25 @@ data:
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
-  # ~1M parameter architecture
-  # d_model must be divisible by n_heads
-  # bottleneck_dim = d_model * pred_bottleneck_ratio must be divisible by pred_n_heads
-  d_model:      64                      # Changed to 64 (divisible by 4, better capacity)
-  n_heads:      4                       # Keep 4 heads (attention diversity)
-  n_isab:       2                       # Back to 2 (better set encoding)
-  n_col_attn:   1                       # Keep at 1 (saves params)
-  n_enc_layers: 3                       # Increased from 2 (better encoding)
-  n_dec_layers: 3                       # Increased from 2 (better generation)
-  m_inducing:   24                      # Increased for better attention
-  max_n_vars:   9                       # Match data config
-  dropout:      0.15                    # Slightly higher dropout
+  # ~1M parameter architecture (991K params = 29% of base)
+  # d_model must be divisible by n_heads: 80/4=20
+  # bottleneck_dim must be divisible by pred_n_heads: 30/2=15
+  d_model:      80                      # Optimized for ~1M total params
+  n_heads:      4                       # 4 heads → head_dim=20
+  n_isab:       2                       # ISA blocks in MixEncoder
+  n_col_attn:   2                       # Column attention layers
+  n_enc_layers: 3                       # Encoder transformer layers
+  n_dec_layers: 4                       # Decoder transformer layers
+  m_inducing:   32                      # Inducing points for set attention
+  max_n_vars:   9                       # Max variable padding
+  dropout:      0.15                    # Dropout for regularization
 
-  # Predictor (JEPA bottleneck) - KEPT SMALL to prevent overfitting
-  # bottleneck_dim = 64 * 0.25 = 16 (divisible by pred_n_heads=2)
+  # Predictor (JEPA bottleneck)
+  # bottleneck_dim = 80 * 0.375 = 30 (divisible by pred_n_heads=2 → 15)
   predictor:
-    pred_n_heads:          2            # Fewer heads
-    pred_bottleneck_ratio: 0.25         # 64 * 0.25 = 16 (must be divisible by pred_n_heads)
-    pred_dropout:          0.25         # Higher dropout for regularization
+    pred_n_heads:          2            # Attention heads in predictor
+    pred_bottleneck_ratio: 0.375        # 80 * 0.375 = 30
+    pred_dropout:          0.25         # Dropout for regularization
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
 loss:
