@@ -75,7 +75,7 @@ Each notebook has cells organized as:
 SymbolicRegression/
 ├── cache/              # Preprocessed data
 │   ├── aif_preprocessed.pt
-│   └── synthetic_1M/   # Generated synthetic equations
+│   └── synthetic_small/   # Generated synthetic equations (configs/small.yaml)
 ├── checkpoints/        # Training checkpoints
 │   ├── last.ckpt
 │   └── jepa-step=XXXXX.ckpt
@@ -103,7 +103,7 @@ SymbolicRegression/
 │  1️⃣  GENERATE                                                    │
 │      Notebook: 01_generate_synthetic_data.ipynb                 │
 │      Time: ~4-8 hours                                           │
-│      Output: SymbolicRegression/cache/synthetic_1M/             │
+│      Output: SymbolicRegression/cache/synthetic_small/            │
 │                                                                  │
 │      ⏳ Wait for completion before proceeding!                   │
 │                                                                  │
@@ -145,7 +145,7 @@ SymbolicRegression/
 - `N_DATA_POINTS`: Data rows per equation (default: 2,000)
 - `SYNTHETIC_SUBFOLDER`: Output folder name
 
-**Output:** `SymbolicRegression/cache/synthetic_1M/`
+**Output:** `SymbolicRegression/cache/synthetic_small/`
 
 **Tips:**
 - Takes ~4-8 hours on Colab T4
@@ -226,7 +226,7 @@ SymbolicRegression/
 1. Stop training
 2. Open `01_generate_synthetic_data.ipynb`
 3. Run all cells to generate synthetic data
-4. Wait for generation to complete (check for `.pt` files in `SymbolicRegression/cache/synthetic_1M/`)
+4. Wait for generation to complete (check for `.pt` files in `SymbolicRegression/cache/synthetic_small/`)
 5. Return to training notebook and re-run
 
 **Why:** Training requires synthetic data to be generated first. The notebook checks for this automatically.

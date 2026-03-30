@@ -9,7 +9,7 @@ data:
   cache_dir:   "cache/"
   
   # Synthetic data (20k+ equations)
-  synthetic_cache: "cache/synthetic_20k"
+  synthetic_cache: "/content/drive/MyDrive/SymbolicRegression/cache/synthetic_small"
   n_synthetic:     20000                # 20k equations (can go up to 50k)
   n_data_points:   500                  # Fewer data points per equation
   num_workers:     4                    # Generation workers

@@ -1432,10 +1432,12 @@ def _generate_corpus(
                     part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
                     tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
                     # Atomic write: save to .tmp and rename
-                    print(f"\n💾 Saving chunk {chunk_count} ({len(equations)} equations) to {part_path}...")
+                    print(f"\n💾 Saving chunk {chunk_count} ({len(equations)} equations)...")
                     torch.save(equations, str(tmp_path))
+                    # Get size before rename
+                    tmp_size = tmp_path.stat().st_size / 1024 / 1024
                     tmp_path.replace(part_path)
-                    print(f"   ✅ Saved {part_path.name} ({tmp_path.stat().st_size / 1024 / 1024:.1f} MB)")
+                    print(f"   ✅ Saved {part_path.name} ({tmp_size:.1f} MB)")
 
                     # Cooldown for filesystem sync (especially on cloud storage)
                     import time
