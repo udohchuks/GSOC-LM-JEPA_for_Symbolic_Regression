@@ -25,10 +25,10 @@ def load_inference_model(config_path: str, ckpt_path: str, device: str) -> Infer
     """Load trained checkpoint into the InferenceModel for generation."""
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-        
+
     pl_module = LLMJEPAModule.load_from_checkpoint(ckpt_path, map_location=device)
     base_model = pl_module.model
-    
+
     inf_model = InferenceModel(
         d_model=config['model']['d_model'],
         n_heads=config['model']['n_heads'],
@@ -38,15 +38,18 @@ def load_inference_model(config_path: str, ckpt_path: str, device: str) -> Infer
         vocab_size=VOCAB_SIZE,
         max_seq_len=MAX_SEQ_LEN,
     ).to(device)
-    
+
     # Copy weights
     inf_model.data_embedder.load_state_dict(base_model.data_embedder.state_dict())
     inf_model.unit_embedder.load_state_dict(base_model.unit_embedder.state_dict())
     inf_model.context_encoder.load_state_dict(base_model.mix_encoder.state_dict())
     inf_model.decoder.load_state_dict(base_model.decoder.state_dict())
-    
+
     inf_model.max_n_vars = config['data']['max_n_vars']
+    
+    # Set to eval mode and ensure float32 for inference
     inf_model.eval()
+    inf_model = inf_model.float()  # Ensure float32 for inference
     return inf_model
 
 class ModelEvaluator:
