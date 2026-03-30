@@ -250,7 +250,7 @@ def odeformer_inference(
     device = X_bits.device
     # 1. Encode
     with torch.no_grad():
-        z_context, _ = model.encode(X_bits, unit_idx, var_mask)
+        z_context = model.encode(X_bits, unit_idx, var_mask)
 
     # 2. Diversity Pool Generation
     token_sequences = diversity_pool_sample(
