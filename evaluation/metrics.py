@@ -21,6 +21,9 @@ from sklearn.metrics import r2_score
 import difflib
 import warnings
 
+# Silence all mathematical runtime warnings to keep Colab output clean
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 
 # ── Formula Complexity ────────────────────────────────────────────────────────
 

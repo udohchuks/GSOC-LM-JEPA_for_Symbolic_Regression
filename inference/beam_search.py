@@ -19,6 +19,9 @@ import warnings
 import yaml
 from pathlib import Path
 
+# Silence all numpy/sympy runtime warnings from valid equation optimizations
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 from data.tokenizer import (
     IDX2TOKEN, TOKEN2IDX, BOS_IDX, EOS_IDX, PAD_IDX,
     MAX_SEQ_LEN, decode_formula, rpn_to_sympy
