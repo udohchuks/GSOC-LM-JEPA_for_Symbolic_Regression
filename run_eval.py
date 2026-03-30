@@ -32,7 +32,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Evaluate LLM-JEPA on AI Feynman using Goldilocks Suite"
     )
-    parser.add_argument("--config", type=str, default="configs/base_config.yaml")
+    parser.add_argument("--config", type=str, default="configs/small.yaml",
+                        help="Path to model config (use configs/small.yaml for small models)")
     parser.add_argument("--ckpt", type=str, required=True,
                         help="Path to trained checkpoint (.ckpt)")
     parser.add_argument("--mode", type=str, choices=["eval", "predict"], default="eval", 
