@@ -30,6 +30,9 @@ def main():
     chunk_size = cfg_data.get('chunk_size', 1000)
     cache_path = cfg_data.get('synthetic_cache', 'cache/synthetic_1M')
     
+    # Get variable distribution weights from config
+    var_weights = cfg_data.get('var_weights', None)
+    
     # Large scale check (consistent with build_synthetic_dataloader)
     IS_LARGE_SCALE = (n_equations >= 100000)
     
@@ -49,7 +52,8 @@ def main():
         n_data_points=n_data_points,
         num_workers=num_workers,
         cache_dir=target_dir,
-        chunk_size=chunk_size
+        chunk_size=chunk_size,
+        var_weights=var_weights  # Pass variable weights from config
     )
     
     print("\nGeneration complete!")

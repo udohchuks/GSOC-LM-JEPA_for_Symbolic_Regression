@@ -2,19 +2,23 @@ Google Summer of Code 2026  |  ML4SCI
 LM-JEPA for Symbolic Regression
 Project 2.7: Physics-Informed Symbolic Regression via LM-JEPA Pretraining
 
-[EDITOR NOTE: Fill in every field below before submitting. Reviewers discard proposals with missing contact info.]
-Name: [Your Full Name]
-Email: [your.email@example.com]
-GitHub: [github.com/udohchuks/GSOC-LM-JEPA_for_Symbolic_Regression]
-University: [Your University, Country]
-Degree: [e.g. MSc Artificial Intelligence, Year 2]
-Timezone: [e.g. UTC+0, Accra, Ghana]
-Availability: 40 hours per week. [State any known exceptions honestly -- exams, travel, etc.]
+Name: Chukwuemeka Samuel Udoh
+Email: udoh.emeka@ashesi.edu.gh
+GitHub: github.com/udohchuks/GSOC-LM-JEPA_for_Symbolic_Regression
+University: Ashesi University, University
+Degree: Mechatronics Engineering, Bsc
+Timezone: UTC+0, Accra, Ghana
+Availability: 70 hours per week. 
 
 Abstract
-[EDITOR NOTE: This is the most important paragraph. A reviewer skimming 50 proposals will decide in 30 seconds. Lead with your scientific argument, not a list of components. The version below makes the argument explicitly -- keep it.]
 Standard symbolic regression transformers treat physics equations as arbitrary token sequences. They have no prior knowledge that sin must take a dimensionless argument, that you cannot add a force to a velocity, or that the structure of a formula is constrained by the physical dimensions of its variables. This proposal describes a system that encodes that knowledge at every level of the architecture and training process, and asks a precise scientific question: does doing so actually help?
-My pre-GSoC work already provides the foundation to answer that question. I have built and trained a complete LM-JEPA system for symbolic regression: a physics-informed synthetic data engine that generates dimensionally consistent equations at scale using 70 physics equation templates, IEEE-754 bit encoding of numerical inputs that preserves symbolic constants without normalization, a MixEncoder with Induced Self-Attention that produces a global context representation of the data, a JEPA predictor trained with Sketched Isotropic Gaussian Regularisation (SIGReg) for stable training without representation collapse, and an RPN decoder with dimensional analysis constraints. The current model is ~1M parameters pretrained on 20,000 synthetic equations with a scaled-down configuration for rapid iteration. The system includes three Google Colab notebooks for generate→train→evaluate workflow, comprehensive documentation, and ODEFormer-style inference with beam sampling and R² ranking.
+
+This work introduces the first application of Joint Embedding Predictive Architecture (JEPA) to symbolic regression. JEPA excels at learning representations by predicting one view of data from another (LeCun 2022; Assran et al. 2023). Symbolic regression naturally provides two views of the same underlying structure: the numerical data table and the equation that generated it. By training the model to predict the equation representation from the data representation in embedding space, JEPA learns the deep structural correspondence between variables and their mathematical relationships. To my knowledge, this multi-view representation learning approach has not been applied to symbolic regression before.
+
+The physics-informed approach remains underexplored in neural symbolic regression. While End-to-End Symbolic Regression (Kamienny et al. 2022) achieves competitive results through scale alone (10M equations, no physical constraints), whether physics-informed inductive biases improve sample efficiency and generalization remains an open question. This project directly addresses that gap.
+
+My pre-GSoC work already provides the foundation to answer that question. I have built and trained a complete LM-JEPA system for symbolic regression: a physics-informed synthetic data engine that generates dimensionally consistent equations at scale using 70 physics equation templates, IEEE-754 bit encoding of numerical inputs that preserves symbolic constants without normalization, a MixEncoder with Induced Self-Attention that produces a global context representation of the data, a JEPA predictor trained with Sketched Isotropic Gaussian Regularisation (SIGReg) for stable training without representation collapse, and an RPN decoder with dimensional analysis constraints. SIGReg, as used in LeJEPA and LeWorldModel (Balestriero & LeCun, 2025;Maes et al., 2026), constrains both context and target embeddings to follow an isotropic Gaussian distribution, structurally preventing representation collapse without the need for Exponential Moving Average (EMA) target encoders. This enables simpler end-to-end training with gradients flowing through both encoders—a key advantage over conventional JEPA training. The current model is ~1M parameters pretrained on 25,000 synthetic equations with a scaled-down configuration for rapid iteration. The system includes three Google Colab notebooks for generate→train→evaluate workflow, comprehensive documentation, and ODEFormer-style inference with beam sampling and R² ranking.
+
 The 12-week GSoC plan is structured around three goals: first, get a real benchmark number on the AI Feynman dataset using the current model; second, run controlled ablations that isolate the contribution of each physics-informed component; and third, scale modestly and tune for best final performance. The scientific contribution is the ablation evidence, not the scale. If the physics-informed components help, this is the first empirical proof of that. If they do not, that is equally important to know.
 
 

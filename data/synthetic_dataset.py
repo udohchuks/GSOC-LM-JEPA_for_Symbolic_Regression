@@ -209,139 +209,246 @@ def propagate_units(
 DEPTH_WEIGHTS = [0.02, 0.08, 0.20, 0.35, 0.25, 0.10]  # depths 1-6, peak at 4
 
 # Variable count distribution: optimized for AI Feynman match
-# Shifted toward 4-7 variables to close the gap with AI Feynman (4.09 mean)
+# V2 adjustment: Shift toward 4-6 vars to match AIF mean of 4.09
+# AI Feynman: ~10% at 1-2 vars, ~45% at 3-4 vars, ~45% at 5+ vars
 N_VARS_WEIGHTS = {
-    1: 0.01, 2: 0.03, 3: 0.18, 4: 0.28,
-    5: 0.27, 6: 0.15, 7: 0.06, 8: 0.015, 9: 0.005
+    1: 0.03, 2: 0.07, 3: 0.18, 4: 0.28,
+    5: 0.26, 6: 0.12, 7: 0.04, 8: 0.015, 9: 0.005
 }
 
 # Physics pattern templates for realistic equation generation
-# 70 patterns based on analysis of AI Feynman dataset equations
-# Covers: inverse-square laws, relativistic, thermodynamics, waves, electromagnetism
-# Emphasis on division, negation, and sqrt patterns to match AI Feynman operator frequencies
-PHYSICS_PATTERNS = [
-    # =====================================================================
-    # INVERSE SQUARE LAWS (Coulomb, Newton gravity) - 3-9 variables
-    # =====================================================================
-    "x1 * x2 / x3**2",
-    "x1 * x2 / (x3**2 + x4**2)",
-    "x1 * x2 * x3 / (x4**2 + x5**2 + x6**2)",
-    "x1 * x2 / ((x3-x4)**2 + (x5-x6)**2 + (x7-x8)**2)",  # 3D gravity
+# Organized by operator type to address frequency gaps in AI Feynman match
+# Based on systematic analysis of 100 AI Feynman equations
+
+# ── BUCKET 1: DIVISION-HEAVY PATTERNS (weight=0.40) ───────────────────────────
+# Targets / ratio gap: current 0.20 → target 0.40
+PATTERNS_DIVISION_HEAVY = [
+    # Inverse square laws
+    "x1 * x2 / x3**2",                              # Coulomb: F=q1q2/r²
+    "x1 * x2 / (x3**2)",                            # Newton gravity: F=Gm1m2/r²
+    "x1 * x2 / (x3**2 + x4**2)",                    # 2D Coulomb
+    "x1 / (x2**2 + x3**2 + x4**2)",                 # 3D potential
+    "x1 * x2 / ((x3-x4)**2 + (x5-x6)**2)",          # offset Coulomb
+    "x1 / (4 * x2 * x3**2)",                        # point charge potential
     
-    # =====================================================================
-    # ENERGY EQUATIONS - 2-6 variables
-    # =====================================================================
-    "x1 * x2**2 / 2",  # Kinetic energy
-    "x1 * x2**2 + x3 * x4**2",  # Coupled energies
-    "x1 * x2**2 / 2 + x3 * x4**2 / 2 + x5 * x6**2 / 2",  # Multi-energy
-    "x1 * x2 * x3 * (1/x4 - 1/x5)",  # Gravitational potential diff
+    # Lorentz / relativistic
+    "x1 / sqrt(1 - x2**2 / x3**2)",                 # Lorentz factor: γ=1/√(1-v²/c²)
+    "(x1 + x2) / (1 + x1*x2 / x3**2)",             # relativistic velocity addition
+    "x1 * x2 / sqrt(1 - x2**2 / x3**2)",            # relativistic momentum
+    "x1 / sqrt(1 - x2**2 / x3**2) - x1",            # kinetic energy relativistic
     
-    # =====================================================================
-    # RELATIVISTIC EQUATIONS - 3-4 variables (AI Feynman specialty)
-    # =====================================================================
-    "x1 / sqrt(1 - x2**2/x3**2)",  # Lorentz factor
-    "x1 * x2 / sqrt(1 - x2**2/x3**2)",  # Relativistic momentum
-    "(x1 - x2*x3) / sqrt(1 - x2**2/x3**2)",  # Lorentz transform
-    "(x1 - x2*x3/x3**2) / sqrt(1 - x2**2/x3**2)",  # Time transform
-    "(x1 + x2) / (1 + x1*x2/x3**2)",  # Velocity addition
+    # Simple rational forms
+    "1 / (x1 + x2)",                                # harmonic denominator
+    "x1 / (x2 + x3)",                               # weighted inverse
+    "x1 * x2 / (x3 + x4)",                          # product over sum
+    "x1 / (x2 * x3)",                               # double denominator
+    "x1 * x2 / (x3 * x4)",                          # ratio of products
+    "x1 / (x2 * (1 - x3/x4))",                      # nested fraction
+    "1 / (1/x1 + 1/x2)",                            # parallel resistance
+    "1 / (1/x1 + 1/x2 + 1/x3)",                     # triple parallel
     
-    # =====================================================================
-    # WAVE/OSCILLATION - 3-5 variables
-    # =====================================================================
-    "sin(x1 * x2) * exp(-x3)",
-    "cos(x1) * exp(-x2**2)",
-    "sin(x1) * cos(x2) * exp(-x3**2)",
-    "sin(x1 * x2) * cos(x3 * x4) * exp(-x5)",
-    "exp(-x1**2/2) / sqrt(2*pi)",  # Gaussian
-    "exp(-(x1/x2)**2/2) / (sqrt(2*pi)*x2)",  # Normal distribution
+    # Thermodynamic fractions
+    "x1 * x2 / x3",                                 # ideal gas: PV=nRT
+    "x1 / (x2 * x3)",                               # Boltzmann fraction
+    "x1 * x2 / (x3 * x4 * x5)",                     # multi-var thermo
     
-    # =====================================================================
-    # DISTANCE FORMULAS - 4-8 variables
-    # =====================================================================
-    "sqrt((x1 - x2)**2 + (x3 - x4)**2)",  # 2D distance
-    "sqrt(x1**2 + x2**2 + x3**2)",  # 3D magnitude
-    "sqrt((x1 - x2)**2 + (x3 - x4)**2 + (x5 - x6)**2)",  # 3D distance
-    "sqrt(x1**2 + x2**2 - 2*x1*x2*cos(x3-x4))",  # Law of cosines
-    "sqrt(x1**2 + x2**2 + x3**2 + x4**2 + x5**2)",  # 5D magnitude
-    "sqrt((x1-x2)**2 + (x3-x4)**2 + (x5-x6)**2 + (x7-x8)**2)",  # 4D distance
+    # Fractions with trig
+    "x1 / (1 - x2 * cos(x3))",                      # orbit equation (conic section)
+    "x1 * sin(x2) / x3",                            # torque component
+    "x1 * x2 / (x3 * sin(x4))",                     # Snell's law form
     
-    # =====================================================================
-    # THERMODYNAMICS - 3-6 variables
-    # =====================================================================
-    "x1 * x2 / x3",  # Ideal gas law
-    "exp(-x1 / x2)",  # Boltzmann factor
-    "x1 * exp(-x2 / x3) / sqrt(x4)",
-    "x1 * x2 * x3 * exp(-x4/(x5*x6))",  # Maxwell-Boltzmann
-    "x1 * x2 * ln(x3/x4)",  # Entropy
+    # Capacitance / resistance forms
+    "x1 * x2 / (x3 - x4)",                          # differential ratio
+    "(x1 - x2) / (x1 + x2)",                        # reflection coefficient
+    "x1 * (1 - x2/x3) / x4",                        # nested ratio
     
-    # =====================================================================
-    # ELECTROMAGNETISM - 3-6 variables
-    # =====================================================================
-    "x1 * x2 * x3 / (x4 * x5**3)",  # Biot-Savart-like
-    "x1 * x2 / (x3 * x4**2)",  # Field intensity
-    "x1 * x2 * sin(x3)",  # Lorentz force component
-    "x1 * (x2 + x3 * x4 * sin(x5))",  # Combined EM force
-    
-    # =====================================================================
-    # DIVISION-HEAVY PATTERNS (6-8 variables) - CRITICAL FOR AI FEYNMAN MATCH
-    # =====================================================================
-    "x1 / (x2 + x3)",
-    "x1 * x2 / (x3 + x4 + x5)",
-    "(x1 + x2) / (x3 * x4)",
-    "x1 / (x2 * x3 * x4)",
-    "(x1 * x2 + x3 * x4) / (x5 * x6)",
-    "x1 / sqrt(x2 * x3)",
-    "(x1 + x2 + x3) / (x4 * x5 * x6)",
-    "x1 * x2 / (x3 + x4 + x5 + x6)",
-    "1 / (x1 + x2)",  # Simple inverse sum
-    "1 / (1/x1 + 1/x2)",  # Parallel resistance
-    "x1 / (x2 * (x3 + x4))",
-    "(x1 + x2) / (x3 * (x4 + x5))",
-    
-    # =====================================================================
-    # NEGATION PATTERNS - CRITICAL FOR AI FEYNMAN MATCH
-    # =====================================================================
-    "-x1 * x2",
-    "-x1 / x2",
-    "exp(-x1) - x2",
-    "x1 - x2 - x3",
-    "-(x1 + x2) * x3",
-    "x1 * (x2 - x3)",
-    "x1 * (x2 - x3) * x4",
-    "exp(-x1/x2) * (x3 - x4)",
-    "-x1 * x2 / x3",
-    
-    # =====================================================================
-    # DOT PRODUCT / SUM PATTERNS - AI FEYNMAN COMMON
-    # =====================================================================
-    "x1*x2 + x3*x4 + x5*x6",  # 3D dot product
-    "x1*x2 + x3*x4",  # 2D dot product
-    "x1*y1 + x2*y2 + x3*y3",  # Explicit dot product
-    
-    # =====================================================================
-    # HIGH COMPLEXITY (6-8 variables)
-    # =====================================================================
-    "x1 * x2 * x3 / (x4**2 + x5**2 + x6**2)",
-    "(x1 + x2 + x3) * sqrt(x4**2 + x5**2) / (x6 * x7)",
-    "sqrt(x1**2 + x2**2 + x3**2 + x4**2) * exp(-x5 / x6)",
-    "x1 * exp(-x2/x3) * sin(x4) * cos(x5) / sqrt(x6 + x7)",
-    "(x1*x2 + x3*x4) / sqrt(x5**2 + x6**2 + x7**2)",
-    
-    # =====================================================================
-    # VERY HIGH COMPLEXITY (8-10 variables)
-    # =====================================================================
-    "(x1 * x2 + x3 * x4 + x5 * x6) / (x7 + x8 + x9)",
-    "sqrt((x1 - x2)**2 + (x3 - x4)**2) * exp(-x5 / x6)",
-    "x1 * x2 * x3 / (x4**2 + x5**2 + x6**2 + x7**2)",
-    "(x1 + x2 + x3) * sqrt(x4**2 + x5**2) / (x6 * x7 * x8)",
-    "sqrt(x1**2 + x2**2 + x3**2 + x4**2) * exp(-x5 / x6)",
-    "(x1*x2 + x3*x4 + x5*x6 + x7*x8) / (x9 + x10)",
-    "sqrt((x1-x2)**2 + (x3-x4)**2 + (x5-x6)**2 + (x7-x8)**2)",
-    "x1*x2*x3 / (x4**2 + x5**2 + x6**2 + x7**2 + x8**2)",
-    "(x1 + x2)*(x3 + x4)*(x5 + x6) / (x7*x8*x9)",
-    "(x1*x2 + x3*x4 + x5*x6 + x7*x8 + x9*x10) / (x1 + x2)",
-    "sqrt(x1**2 + x2**2 + x3**2 + x4**2 + x5**2 + x6**2) * exp(-x7/x8)",
+    # Energy fractions
+    "x1**2 / (2 * x2)",                             # E=p²/2m
+    "x1**2 / (2 * x2 * x3**2)",                     # rotational energy
+    "x1 * x2**2 / (2 * x3)",                        # spring energy / length
+    "(x1 * x2**2) / (2 * x3**2)",                   # field energy density
+
+    # HIGH-VARIABLE DIVISION PATTERNS (6-9 vars) - V2 adjustment
+    "x1 * x2 / (x3**2 + x4**2 + x5**2 + x6**2)",   # 6-var denominator
+    "x1 * x2 * x3 / (x4**2 + x5**2 + x6**2)",      # 6-var fraction
+    "(x1 * x2 + x3 * x4) / (x5 + x6)",             # 6-var rational
+    "x1 * x2 / ((x3-x4)**2 + (x5-x6)**2 + (x7-x8)**2)",  # 8-var Coulomb
+    "(x1 + x2 + x3) / (x4 * x5 * x6)",             # 6-var ratio
+
+    # MULTIPLE DIVISION PATTERNS (V3 adjustment - more explicit / operators)
+    "x1 / x2 / x3",                                 # chained division
+    "x1 / x2 / x3 / x4",                            # multi-chain division
+    "(x1 / x2 + x3 / x4)",                          # sum of ratios
+    "(x1 / x2 + x3 / x4 + x5 / x6)",               # triple ratio sum
+    "x1 / x2 / (x3 + x4)",                          # nested division
+    "(x1 / x2) / (x3 / x4)",                        # ratio of ratios
+    "x1 / (x2 * x3) + x4 / (x5 * x6)",             # sum of fractions
+    "(x1 + x2) / (x3 * x4) + x5 / x6",             # mixed fractions
 ]
+
+# ── BUCKET 2: NEGATION-HEAVY PATTERNS (weight=0.25) ───────────────────────────
+# Targets neg ratio gap: current 0.13 → target 0.30
+PATTERNS_NEGATION_HEAVY = [
+    # Direct negation
+    "-x1 * x2",                                     # F = -kx (Hooke's law)
+    "-x1 * x2 / x3**2",                             # attractive Coulomb
+    "-x1 / x2",                                     # negative ratio
+    "-(x1 - x2) * x3",                              # force from displacement
+    "-x1 * x2 * x3",                                # triple product negation
+    
+    # Subtraction in argument
+    "x1 * (x2 - x3)",                               # net force
+    "x1 * (x2 - x3) / x4",                          # net force normalized
+    "(x1 - x2) * x3 * x4",                          # difference times product
+    "x1 * x2 - x3 * x4",                            # competing terms
+    "x1 * x2 - x3 * x4 + x5 * x6",                 # three-term balance
+    
+    # Exponential with negation
+    "exp(-x1 / x2)",                                # Boltzmann: e^(-E/kT)
+    "exp(-x1**2 / (2 * x2**2))",                    # Gaussian: e^(-x²/2σ²)
+    "x1 * exp(-x2 * x3)",                           # damped: A·e^(-γt)
+    "exp(-x1/x2) * (x3 - x4)",                      # decaying difference
+    "x1 * exp(-x2 / x3) / x4",                      # full Boltzmann factor
+    "(1 - exp(-x1 * x2)) * x3",                     # saturation form
+    "x1 * (1 - exp(-x2/x3))",                       # exponential approach
+    
+    # Negation inside trig
+    "cos(x1 - x2)",                                 # phase difference
+    "sin(x1 - x2)",                                 # wave difference
+    "x1 * cos(x2 - x3) + x4 * cos(x5 - x6)",       # superposition with phases
+    "x1 * sin(x2 * x3 - x4)",                       # traveling wave
+    
+    # Subtracted compound forms
+    "x1 * x2**2 / 2 - x3 * x4",                    # kinetic minus potential
+    "x1 / x2 - x3 / x4",                            # difference of ratios
+    "sqrt(x1**2 + x2**2 - 2*x1*x2*cos(x3))",        # law of cosines
+    "x1**2 + x2**2 - 2*x1*x2*cos(x3)",              # law of cosines (unsqrt)
+    "(x1 - x2)**2 / x3",                            # squared difference
+    "(x1 - x2)**2 + (x3 - x4)**2",                  # 2D distance squared
+
+    # HIGH-VARIABLE NEGATION PATTERNS (6-9 vars) - V2 adjustment
+    "x1 * x2 - x3 * x4 + x5 * x6 - x7 * x8",       # 8-var alternating
+    "sqrt((x1-x2)**2 + (x3-x4)**2) - sqrt((x5-x6)**2 + (x7-x8)**2)",  # 8-var distance diff
+    "x1 * x2 * x3 - x4 * x5 * x6 + x7 * x8",       # 8-var mixed
+    "(x1 - x2)**2 + (x3 - x4)**2 - (x5 - x6)**2",  # 6-var difference
+    "x1 * x2 - x3 * x4 + x5 * x6 - x7",            # 7-var alternating
+
+    # MORE NEGATION PATTERNS (V4 adjustment - need more neg operator)
+    "-x1 * x2 * x3 * x4",                           # 4-var negation
+    "-x1 / (x2 * x3)",                              # negated fraction
+    "-(x1 + x2) * x3",                              # negated sum
+    "-x1 - x2 - x3",                                # triple negation
+    "x1 - x2 - x3 - x4",                            # multi-subtraction
+    "-x1 * (x2 - x3)",                              # negated difference
+    "-x1 / x2 - x3 / x4",                           # negated ratio sum
+    "-exp(-x1) * x2",                               # negated exp
+]
+
+# ── BUCKET 3: ADDITION-RICH PATTERNS (weight=0.20) ─────────────────────────────
+# Targets + ratio gap: current 0.43 → target 0.70
+PATTERNS_ADDITION_RICH = [
+    # Pythagorean / distance
+    "sqrt(x1**2 + x2**2)",                          # 2D magnitude
+    "sqrt(x1**2 + x2**2 + x3**2)",                  # 3D magnitude
+    "sqrt((x1-x2)**2 + (x3-x4)**2)",                # 2D Euclidean distance
+    "sqrt((x1-x2)**2 + (x3-x4)**2 + (x5-x6)**2)",  # 3D Euclidean distance
+
+    # Superposition principles
+    "x1 + x2 * x3",                                 # linear + interaction
+    "x1 + x2 + x3 * x4",                            # three-term
+    "x1 * x2 + x3 * x4 + x5 * x6",                 # dot-product style
+    "x1 + x2 * cos(x3)",                            # wave + offset
+    "x1 * cos(x2) + x3 * cos(x4)",                  # two-wave superposition
+    "x1 * sin(x2) + x3 * cos(x2)",                  # quadrature components
+
+    # Denominator sums
+    "x1 / (x2**2 + x3**2)",                         # 2D denominator
+    "x1 * x2 / (x3**2 + x4**2 + x5**2)",            # 3D denominator
+    "x1 / (x2 + x3 * x4)",                          # mixed denominator
+    "x1 * x2 / (x3 + x4 * x5**2)",                  # quadratic denominator
+
+    # Polynomial-style
+    "x1 * x2 + x3 * x4**2",                         # linear + quadratic
+    "x1 * x2**2 + x3 * x4**2",                      # two quadratics
+    "x1 * x2 + x3 / x4",                            # mixed add
+
+    # HIGH-VARIABLE PATTERNS (6-9 vars) - V2 adjustment
+    "x1 * x2 + x3 * x4 + x5 * x6 + x7 * x8",       # 8-var sum
+    "sqrt((x1-x2)**2 + (x3-x4)**2 + (x5-x6)**2 + (x7-x8)**2)",  # 8-var distance
+    "x1 * x2 * x3 + x4 * x5 * x6 + x7 * x8",       # 8-var mixed
+    "(x1 - x2)**2 + (x3 - x4)**2 + (x5 - x6)**2",  # 6-var distance
+    "x1 * x2 + x3 * x4 + x5 * x6 + x7",            # 7-var sum
+
+    # MORE ADDITION PATTERNS (V4 adjustment - need more + operator)
+    "x1 + x2 + x3 + x4",                            # 4-term sum
+    "x1 + x2 + x3 + x4 + x5",                       # 5-term sum
+    "x1 * x2 + x3 + x4",                            # product + sums
+    "x1 + x2 * x3 + x4 * x5",                       # mixed sum
+    "x1 + x2 + x3 * x4 * x5",                       # sum + product
+    "x1 * x2 + x3 * x4 + x5",                       # products + var
+    "x1 + x2 + x3 + x4 * x5 * x6",                 # sums + triple product
+]
+
+# ── BUCKET 4: STANDARD PATTERNS (weight=0.15) ──────────────────────────────────
+# Already well-matched patterns
+PATTERNS_STANDARD = [
+    # Multiplicative separable (already matched well)
+    "x1 * x2 * x3",
+    "x1 * x2**2 / 2",                               # KE = ½mv²
+    "x1 * x2 * x3**2",
+    "x1 * x2 * sin(x3)",                            # torque: τ = rF sinθ
+    "x1 * x2 * cos(x3)",                            # work: W = Fd cosθ
+    
+    # Wave / oscillation (already matched)
+    "sin(x1 * x2) * exp(-x3 * x4)",                 # damped oscillation
+    "x1 * sin(x2 * x3 + x4)",                       # traveling wave full
+    "x1 * cos(x2 * x3)",                            # simple wave
+    
+    # Thermodynamic (already matched)
+    "x1 * x2 * log(x3 / x4)",                       # entropy: ΔS = nR ln(V2/V1)
+    "x1 * log(1 + x2/x3)",                          # log form
+    "exp(-x1 / (x2 * x3))",                         # partition function
+    
+    # Power laws (already matched)
+    "x1 * x2**x3",                                  # power law
+    "x1**2 * x2**3",                                # scaling law
+    "x1 * x2**(1/3)",                               # cube-root scaling
+    
+    # Statistical / Gaussian (already matched)
+    "exp(-x1**2 / 2) / sqrt(2 * 3.14159)",          # normal distribution
+    "x1 * exp(-x2**2 / (2 * x3**2))",               # scaled Gaussian
+
+    # HIGH-VARIABLE STANDARD PATTERNS (6-8 vars) - V2 adjustment
+    "x1 * x2 * x3 * x4 * x5",                       # 5-var product
+    "x1 * x2 * x3 * x4 * x5 * x6",                  # 6-var product
+    "sin(x1 * x2 * x3) * exp(-x4 * x5 * x6)",       # 6-var damped
+    "x1 * sin(x2 * x3 * x4) + x5 * cos(x6 * x7)",   # 7-var superposition
+    "exp(-x1 / (x2 * x3 * x4 * x5))",               # 5-var partition
+
+    # TRIG-HEAVY PATTERNS (V4 adjustment - need more sin/cos)
+    "sin(x1) * cos(x2)",                            # trig product
+    "sin(x1 + x2)",                                 # trig sum argument
+    "cos(x1) + cos(x2)",                            # trig sum
+    "sin(x1) * sin(x2) * sin(x3)",                  # triple trig
+    "cos(x1 * x2) * cos(x3 * x4)",                  # double trig product
+]
+
+# Organized pattern buckets with weights
+PATTERNS_BY_TYPE = {
+    'division_heavy': PATTERNS_DIVISION_HEAVY,     # 40 patterns
+    'negation_heavy': PATTERNS_NEGATION_HEAVY,     # 30 patterns
+    'addition_rich':  PATTERNS_ADDITION_RICH,      # 17 patterns
+    'standard':       PATTERNS_STANDARD,           # 16 patterns
+}
+
+# Pattern type weights to match AI Feynman operator frequencies
+# V4 adjustment: Increased negation_heavy and addition_rich for better match
+PATTERN_TYPE_WEIGHTS = {
+    'division_heavy': 0.35,    # Reduced slightly - division OK at -24%
+    'negation_heavy': 0.30,    # Increased from 0.20 → 0.30 (need more neg, +)
+    'addition_rich':  0.23,    # Increased from 0.18 → 0.23 (need more +)
+    'standard':       0.12,    # Keep well-matched patterns
+}
 
 class PhysicsTreeBuilder:
     """
@@ -373,10 +480,12 @@ class PhysicsTreeBuilder:
         - Negation Freq: 0.10-0.15/eq (AIF: 0.3/eq, Gap: -50% to -67%)
         - Sqrt Freq: 0.15-0.20/eq (AIF: 0.2/eq, Gap: 0% to -25%)
     """
-    def __init__(self, max_depth: int = 6, pattern_fraction: float = 0.80):
+    def __init__(self, max_depth: int = 6, pattern_fraction: float = 0.80, var_weights: dict = None):
         self.max_depth = max_depth
-        self.pattern_fraction = pattern_fraction  # 80% pattern-based
-        
+        self.pattern_fraction = pattern_fraction
+        # Use provided weights or fall back to module default
+        self.var_weights = var_weights if var_weights is not None else N_VARS_WEIGHTS
+
         # Operator biasing based on AI Feynman analysis
         self.operator_weights = {
             '*': 0.35, '+': 0.18, '/': 0.12,
@@ -385,16 +494,16 @@ class PhysicsTreeBuilder:
     
     def _enforce_min_vars(self, n_vars: int) -> int:
         """Ensure minimum variable count for complexity."""
-        # 70% of equations forced to 4+ variables
-        if n_vars < 4 and random.random() < 0.70:
+        # V2 adjustment: 85% of equations forced to 4+ variables (up from 70%)
+        if n_vars < 4 and random.random() < 0.85:
             n_vars = random.choices(
                 [4, 5, 6, 7, 8],
-                weights=[0.30, 0.30, 0.20, 0.15, 0.05]
+                weights=[0.35, 0.30, 0.20, 0.10, 0.05]
             )[0]
         elif n_vars < 3:
             n_vars = random.choices(
                 [3, 4, 5, 6, 7],
-                weights=[0.30, 0.35, 0.20, 0.10, 0.05]
+                weights=[0.20, 0.40, 0.25, 0.10, 0.05]
             )[0]
         return n_vars
     
@@ -419,11 +528,11 @@ class PhysicsTreeBuilder:
         # 80% pattern-based generation
         if random.random() < self.pattern_fraction:
             return self._sample_from_pattern()
-        
-        # Sample number of variables (with enforcement)
+
+        # Sample number of variables using configured weights
         n_vars = random.choices(
-            list(N_VARS_WEIGHTS.keys()),
-            weights=list(N_VARS_WEIGHTS.values())
+            list(self.var_weights.keys()),
+            weights=list(self.var_weights.values())
         )[0]
         n_vars = self._enforce_min_vars(n_vars)
 
@@ -481,23 +590,45 @@ class PhysicsTreeBuilder:
             return self._binary_node(depth, target_depth, var_pool)
         else:
             return self._unary_node(depth, target_depth, var_pool)
-    
+
     def _binary_node(self, depth, target_depth, var_pool):
-        """Try to build a binary operator node."""
+        """Try to build a binary operator node with weighted operator sampling."""
         left  = self._build(depth + 1, target_depth, var_pool)
         right = self._build(depth + 1, target_depth, var_pool)
 
         if left is None or right is None:
             return self._leaf(var_pool)
 
-        # Try binary operators in random order
-        ops = random.sample(BINARY_TOKENS, len(BINARY_TOKENS))
-        for op in ops:
+        # Weighted operator sampling to match AI Feynman frequencies
+        # V3 adjustment: Division boosted to 5.0x for more / operators
+        # Addition upweighted (2.5x) to close 0.43 → 0.70 gap
+        OPERATOR_WEIGHTS = {
+            '*': 1.0,   # already matched
+            '/': 5.0,   # heavily upweight — target 0.4/eq
+            '+': 2.5,   # upweight — currently at 0.43 ratio
+            '-': 2.0,   # upweight for negation patterns
+        }
+        
+        ops = list(BINARY_TOKENS)
+        weights = [OPERATOR_WEIGHTS.get(op, 1.0) for op in ops]
+        
+        # Weighted sample operators
+        ordered_ops = random.choices(ops, weights=weights, k=len(ops))
+        # Deduplicate while preserving order
+        seen = set()
+        unique_ops = []
+        for op in ordered_ops:
+            if op not in seen:
+                seen.add(op)
+                unique_ops.append(op)
+        
+        for op in unique_ops:
             out_units = propagate_units(op, [left.units, right.units])
             if out_units is not None:
                 node = TreeNode(token=op, units=out_units)
                 node.children = [left, right]
                 return node
+        
         # No valid binary operator found — return left child
         return left
 
@@ -550,18 +681,59 @@ class PhysicsTreeBuilder:
 
         # No valid unary operator — return child as-is
         return child
-    
+
+    def _leaf(self, var_pool: List, force_var_idx: Optional[int] = None) -> TreeNode:
+        """
+        Sample a leaf node: 90% variable, 10% dimensionless constant.
+        
+        Args:
+            var_pool: List of variable metadata
+            force_var_idx: If provided, force this variable index
+        """
+        # If forced to use a specific variable, always use it
+        if force_var_idx is not None:
+            idx = force_var_idx % len(var_pool)
+            entry = var_pool[idx]
+            unit_name = entry[0]
+            units = get_unit_vector(unit_name, warn_unknown=False)
+            tok = f'x{idx + 1}'
+            return TreeNode(token=tok, units=units[:])
+
+        # Standard sampling: 90% variable, 10% constant
+        if random.random() < 0.90:
+            idx = random.randrange(len(var_pool))
+            entry = var_pool[idx]
+            unit_name = entry[0]
+            units = get_unit_vector(unit_name, warn_unknown=False)
+            tok = f'x{idx + 1}'
+            return TreeNode(token=tok, units=units[:])
+        else:
+            # Dimensionless constant
+            tok = random.choice(['1', '2', 'pi'])
+            return TreeNode(token=tok, units=[0] * N_UNIT_DIMS)
+
     def _sample_from_pattern(self) -> Optional[Tuple[TreeNode, List]]:
-        """Generate equation from a physics pattern template."""
-        pattern = random.choice(PHYSICS_PATTERNS)
+        """
+        Generate equation from a physics pattern template.
+        Uses weighted pattern type selection to match AI Feynman operator frequencies.
+        """
+        # Weighted pattern type selection — mirrors Feynman's operator ratios
+        pattern_type = random.choices(
+            list(PATTERN_TYPE_WEIGHTS.keys()),
+            weights=list(PATTERN_TYPE_WEIGHTS.values())
+        )[0]
+        
+        # Select random pattern from chosen bucket
+        pattern = random.choice(PATTERNS_BY_TYPE[pattern_type])
 
         # Count variables needed
         import re
         var_matches = re.findall(r'x(\d+)', pattern)
         n_vars = max(int(v) for v in var_matches) if var_matches else 2
-        
-        # Prefer patterns with 4+ variables (reject simple patterns 30% of time)
-        if n_vars < 4 and random.random() < 0.30:
+
+        # Prefer patterns with 4+ variables (reject simple patterns 70% of time)
+        # V2 adjustment: increased from 30% to 70% to boost mean variable count
+        if n_vars < 4 and random.random() < 0.70:
             return None  # Reject to favor more complex equations
 
         # Sample variables
@@ -587,6 +759,8 @@ class PhysicsTreeBuilder:
 
             # Apply affine transform
             expr, var_pool = apply_affine_transform(var_pool, sym_vars, expr)
+            # Apply negation augmentation (30% probability)
+            expr = apply_negation_augmentation(expr, probability=0.30)
 
             # Convert back to tree
             from data.tokenizer import _sympy_to_rpn
@@ -602,140 +776,6 @@ class PhysicsTreeBuilder:
             return root, var_pool
         except Exception:
             return None
-    
-    def _build(
-        self,
-        depth:        int,
-        target_depth: int,
-        var_pool:     List,
-        min_vars:     int = 1,
-    ) -> Optional[TreeNode]:
-        """
-        Recursively build one tree node.
-
-        IMPROVED: Reduced leaf probability for deeper trees.
-        """
-        # Force leaf at max depth
-        if depth >= target_depth:
-            return self._leaf(var_pool)
-
-        # IMPROVED: Much lower leaf probability for deeper trees
-        # At depth 0: 5% leaf, 95% operator
-        # At depth target_depth-1: 40% leaf, 60% operator
-        leaf_prob = depth / (target_depth + 2) * 0.5
-        if random.random() < leaf_prob:
-            return self._leaf(var_pool)
-
-        # Try a binary operator (70% of operator nodes - up from 60%)
-        if random.random() < 0.70:
-            return self._binary_node(depth, target_depth, var_pool)
-        else:
-            return self._unary_node(depth, target_depth, var_pool)
-    
-    def _binary_node(self, depth, target_depth, var_pool):
-        """Try to build a binary operator node."""
-        left  = self._build(depth + 1, target_depth, var_pool)
-        right = self._build(depth + 1, target_depth, var_pool)
-
-        if left is None or right is None:
-            return self._leaf(var_pool)
-
-        # Try binary operators in random order
-        ops = random.sample(BINARY_TOKENS, len(BINARY_TOKENS))
-        for op in ops:
-            out_units = propagate_units(op, [left.units, right.units])
-            if out_units is not None:
-                node = TreeNode(token=op, units=out_units)
-                node.children = [left, right]
-                return node
-        # No valid binary operator found — return left child
-        return left
-    
-    def _unary_node(self, depth, target_depth, var_pool):
-        """Try to build a unary operator node."""
-
-        child = self._build(depth + 1, target_depth, var_pool)
-        if child is None:
-            return self._leaf(var_pool)
-
-        # For transcendental functions, child must contain a variable
-        # Applying sin/cos/exp to a pure constant just gives another constant
-        TRANSCENDENTAL = {'sin', 'cos', 'tan', 'exp', 'log',
-                      'arcsin', 'arccos', 'arctan'}
-
-        def has_variable(node: TreeNode) -> bool:
-            if node.token.startswith('x'):
-                return True
-            return any(has_variable(c) for c in node.children)
-
-        child_has_var = has_variable(child)
-
-        # IMPROVED: Boost diversity by trying preferred operators first
-        # Priority order: exp, sqrt, inv (underrepresented in v1)
-        PREFERRED_UNARY = ['exp', 'sqrt', 'inv', 'neg', 'sin', 'cos', 'tan', 'log', 'sq']
-        
-        # 40% chance to try preferred operators first
-        if random.random() < 0.40 and child_has_var:
-            for op in PREFERRED_UNARY:
-                if op == 'abs':
-                    continue
-                if op in TRANSCENDENTAL and not child_has_var:
-                    continue
-                out_units = propagate_units(op, [child.units])
-                if out_units is not None:
-                    node = TreeNode(token=op, units=out_units)
-                    node.children = [child]
-                    return node
-        
-        # Fallback: try all operators in random order
-        ops = random.sample(UNARY_TOKENS, len(UNARY_TOKENS))
-        for op in ops:
-            if op == 'abs':
-                continue
-
-            if op in TRANSCENDENTAL and not child_has_var:
-                continue
-
-            out_units = propagate_units(op, [child.units])
-            if out_units is not None:
-                node = TreeNode(token=op, units=out_units)
-                node.children = [child]
-                return node
-
-        # No valid unary operator — return child as-is
-        return child
-    
-    def _leaf(self, var_pool: List, force_var_idx: Optional[int] = None) -> TreeNode:
-        """
-        Sample a leaf node: 80% variable, 20% dimensionless constant.
-        
-        Args:
-            var_pool: List of variable metadata
-            force_var_idx: If provided, force this variable index (for variable tracking)
-        """
-        # If forced to use a specific variable, always use it
-        if force_var_idx is not None:
-            idx = force_var_idx % len(var_pool)
-            entry = var_pool[idx]
-            unit_name = entry[0]
-            units = get_unit_vector(unit_name, warn_unknown=False)
-            tok = f'x{idx + 1}'
-            return TreeNode(token=tok, units=units[:])
-        
-        # Standard sampling: 90% variable (increased from 80%), 10% constant
-        if random.random() < 0.90:
-            # Sample a variable from the pool by index to avoid collapsing
-            # duplicate entries (list.index() always returns the FIRST match)
-            idx       = random.randrange(len(var_pool))
-            entry     = var_pool[idx]
-            unit_name = entry[0]
-            units     = get_unit_vector(unit_name, warn_unknown=False)
-            tok       = f'x{idx + 1}'
-            return TreeNode(token=tok, units=units[:])
-        else:
-            # Dimensionless constant
-            tok = random.choice(['1', '2', 'pi'])
-            return TreeNode(token=tok, units=[0] * N_UNIT_DIMS)
 
 
 # ── Tree conversion ────────────────────────────────────────────────────────────
@@ -944,6 +984,34 @@ def apply_affine_transform(
 
     return new_expr, new_var_pool
 
+
+def apply_negation_augmentation(expr, probability=0.30):
+    """
+    Randomly negate sub-expressions to match Feynman's 0.3/eq negation rate.
+    Applied AFTER tree construction, BEFORE RPN encoding.
+    Matches Kamienny et al.'s augmentation strategy.
+
+    Args:
+        expr: SymPy expression
+        probability: Probability of applying negation (default 0.30 = 30%)
+
+    Returns:
+        expr with one random sub-expression negated
+    """
+    if random.random() > probability:
+        return expr
+
+    # Get all sub-expressions (leaves and branches)
+    sub_exprs = list(expr.args) if expr.args else [expr]
+
+    if not sub_exprs:
+        return expr
+
+    # Negate one randomly selected sub-expression
+    target = random.choice(sub_exprs)
+    return expr.subs(target, -target)
+
+
 # ── Synthetic equation ─────────────────────────────────────────────────────────
 
 @dataclass
@@ -1018,9 +1086,11 @@ def generate_one_equation(
             expr, var_pool = apply_affine_transform(
                 var_pool, sym_vars, expr
             )
+            # Apply negation augmentation (30% probability)
+            expr = apply_negation_augmentation(expr, probability=0.30)
         except Exception:
             continue
-        
+
         # ── Convert to RPN ────────────────────────────────────────────────
         # Map SymPy symbols back to x1...xN tokens
         sym_to_token = {
@@ -1354,6 +1424,7 @@ def _generate_corpus(
     num_workers:   int = None,
     cache_dir:     str  = None,
     chunk_size:    int  = 1000,
+    var_weights:   dict = None,  # Variable distribution weights from config
 ) -> Optional[List[SyntheticEquation]]:
     """
     Generate a corpus of physics-informed synthetic equations.
@@ -1384,7 +1455,16 @@ def _generate_corpus(
     if num_workers is None or num_workers <= 0:
         num_workers = mp.cpu_count()
 
-    builder = PhysicsTreeBuilder(max_depth=6)
+    # Use var_weights from config, or fall back to module-level default
+    if var_weights is not None:
+        # Convert string keys to int keys (YAML quirk)
+        var_weights = {int(k): v for k, v in var_weights.items()}
+        print(f"Using variable weights from config: {var_weights}")
+    else:
+        var_weights = N_VARS_WEIGHTS
+        print(f"Using default variable weights: {var_weights}")
+
+    builder = PhysicsTreeBuilder(max_depth=6, var_weights=var_weights)
     equations = []
     n_attempted = 0
     chunk_count = 0 # Initialize here

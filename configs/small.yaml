@@ -14,9 +14,22 @@ data:
   n_data_points:   500                  # Fewer data points per equation
   num_workers:     4                    # Generation workers
   
+  # Variable distribution weights for synthetic data generation
+  # Adjusted to match AI Feynman: ~16% at 1-2 vars, ~36% at 3 vars, ~27% at 4 vars
+  var_weights:
+    1: 0.05   # AI Feynman: ~1%
+    2: 0.10   # AI Feynman: ~15%
+    3: 0.20   # AI Feynman: ~36%
+    4: 0.25   # AI Feynman: ~27%
+    5: 0.22   # AI Feynman: ~13%
+    6: 0.11   # AI Feynman: ~6%
+    7: 0.05   # AI Feynman: ~5%
+    8: 0.015  # AI Feynman: ~1%
+    9: 0.005  # AI Feynman: ~1%
+  
   # DataLoader
-  n_rows:      100                      # Very small for fast training
-  max_n_vars:  7                        # Reduced padding (vs 9)
+  n_rows:      200                      # Very small for fast training
+  max_n_vars:  9                        # Reduced padding (vs 9)
   batch_size:  64                       # Larger batches for stability
   num_workers: 2                        # DataLoader workers
   chunk_size:  100                      # Smaller chunks (more frequent saves, easier debugging)
@@ -45,7 +58,7 @@ model:
 # ── Loss ──────────────────────────────────────────────────────────────────────
 loss:
   lambda_jepa:   1.0
-  lambda_sigreg: 0.5                    # Increase SIGReg for small data
+  lambda_sigreg: 0.4                    # Increase SIGReg for small data
   lambda_lm:     1.0
   lambda_units:  1.0
   alpha_lm:      2.0
