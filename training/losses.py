@@ -190,17 +190,13 @@ class ValidityWeightedCE(nn.Module):
         """
         # Map tokens to their stack delta (-1, 0, or 1)
         deltas = self.arity_map[token_ids]  # [B, T]
-        
-        # Shift deltas by 1 so we get the depth BEFORE the token is applied
-        # targets[t] validity depends on the stack state AFTER token_ids[:t]
-        # [B, T] -> [B, T] where first col is 0
-        shifted_deltas = torch.cat([
-            torch.zeros((token_ids.size(0), 1), device=token_ids.device, dtype=torch.long),
-            deltas[:, :-1]
-        ], dim=1)
-        
-        # Cumulative sum gives the depth at each step
-        depths = torch.cumsum(shifted_deltas, dim=1)  # [B, T]
+
+        # NO SHIFT: cumsum directly gives stack state AFTER processing token_ids[:t+1]
+        # This is correct because:
+        #   - logits[t] is computed after seeing input_ids[:t+1] (causal attention)
+        #   - targets[t] is the next token to predict
+        #   - Validity of targets[t] depends on stack state AFTER input_ids[:t+1]
+        depths = torch.cumsum(deltas, dim=1)  # [B, T]
         return torch.clamp(depths, min=0)
 
     def forward(
