@@ -1358,9 +1358,24 @@ def _generate_corpus(
     """
     Generate a corpus of physics-informed synthetic equations.
     Parallelised across CPU cores using multiprocessing.
-    
+
     If cache_dir is provided, it saves in chunks of chunk_size to disk
     to save memory, and returns None. Otherwise returns the full list.
+
+    Args:
+        n_equations:   Target number of valid equations to generate
+        n_data_points: Number of data points per equation (default: 1000)
+        verbose:       Print progress and statistics (default: True)
+        num_workers:   Number of CPU workers (default: auto-detect via mp.cpu_count())
+        cache_dir:     Directory to save .pt chunks (None = return list only)
+        chunk_size:    Equations per .pt file when caching (default: 1000)
+
+    Returns:
+        List of SyntheticEquation objects, or None if cache_dir is provided
+
+    Note:
+        Uses itertools.count() for on-demand task generation to avoid wasting
+        CPU cycles. Workers stop immediately when target count is reached.
     """
     import multiprocessing as mp
     from functools import partial
