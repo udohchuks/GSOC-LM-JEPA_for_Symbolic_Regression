@@ -47,9 +47,8 @@ def load_inference_model(config_path: str, ckpt_path: str, device: str) -> Infer
 
     inf_model.max_n_vars = config['data']['max_n_vars']
     
-    # Set to eval mode and ensure float32 for inference
+    # Set to eval mode (already float32 from InferenceModel.__init__)
     inf_model.eval()
-    inf_model = inf_model.float()  # Ensure float32 for inference
     return inf_model
 
 class ModelEvaluator:

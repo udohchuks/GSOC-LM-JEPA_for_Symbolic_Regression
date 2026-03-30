@@ -66,7 +66,7 @@ class InferenceModel(nn.Module):
             m_inducing=32,
             max_n_vars=max_n_vars,
         )
-        
+
         self.decoder = RPNDecoder(
             d_model=d_model,
             n_heads=n_heads,
@@ -75,6 +75,9 @@ class InferenceModel(nn.Module):
             max_seq_len=max_seq_len,
             dropout=0.0,  # No dropout at inference
         )
+        
+        # Ensure float32 for inference (prevents bf16/fp32 mismatch)
+        self.float()
 
     def forward(
         self,
