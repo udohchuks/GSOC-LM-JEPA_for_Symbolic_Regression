@@ -1225,10 +1225,6 @@ class LazySyntheticDataset(Dataset):
         Scan the cache directory for new part files and update the index.
         Safe to call between training epochs to pick up new data.
         """
-        import torch
-        import os
-        from pathlib import Path
-        
         prev_total = self.total_size
 
         if not self.cache_dir.exists():
@@ -1460,7 +1456,6 @@ def _generate_corpus(
 
     # Save metadata manifest for fast LazySyntheticDataset startup
     if cache_dir:
-        import torch
         from pathlib import Path
         
         manifest = {
