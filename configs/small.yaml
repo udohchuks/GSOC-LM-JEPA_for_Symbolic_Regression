@@ -8,9 +8,9 @@ data:
   data_dir:    "data/Feynman_with_units/"
   cache_dir:   "cache/"
   
-  # Synthetic data (20k+ equations)
+  # Synthetic data (25k+ equations)
   synthetic_cache: "/content/drive/MyDrive/SymbolicRegression/cache/synthetic_small"
-  n_synthetic:     20000                # 20k equations (can go up to 50k)
+  n_synthetic:     25000                # 25k equations (can go up to 50k)
   n_data_points:   500                  # Fewer data points per equation
   num_workers:     4                    # Generation workers
   
@@ -38,21 +38,23 @@ data:
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
   # ~1M parameter architecture
-  # Increased from 800K for better performance, still well under 1M target
-  d_model:      56                      # Increased from 48 (more capacity)
+  # d_model must be divisible by n_heads
+  # bottleneck_dim = d_model * pred_bottleneck_ratio must be divisible by pred_n_heads
+  d_model:      64                      # Changed to 64 (divisible by 4, better capacity)
   n_heads:      4                       # Keep 4 heads (attention diversity)
   n_isab:       2                       # Back to 2 (better set encoding)
   n_col_attn:   1                       # Keep at 1 (saves params)
   n_enc_layers: 3                       # Increased from 2 (better encoding)
   n_dec_layers: 3                       # Increased from 2 (better generation)
-  m_inducing:   20                      # Increased from 16 (better attention)
-  max_n_vars:   7                       # Match data config
+  m_inducing:   24                      # Increased for better attention
+  max_n_vars:   9                       # Match data config
   dropout:      0.15                    # Slightly higher dropout
 
   # Predictor (JEPA bottleneck) - KEPT SMALL to prevent overfitting
+  # bottleneck_dim = 64 * 0.25 = 16 (divisible by pred_n_heads=2)
   predictor:
     pred_n_heads:          2            # Fewer heads
-    pred_bottleneck_ratio: 0.20         # Even smaller bottleneck (vs 0.25)
+    pred_bottleneck_ratio: 0.25         # 64 * 0.25 = 16 (must be divisible by pred_n_heads)
     pred_dropout:          0.25         # Higher dropout for regularization
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
