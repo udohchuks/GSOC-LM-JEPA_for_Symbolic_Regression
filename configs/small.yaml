@@ -4,9 +4,9 @@
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 data:
-  csv_path:    "data/FeynmanEquations.csv"
-  data_dir:    "data/Feynman_with_units/"
-  cache_dir:   "cache/"
+  csv_path:    "data/FeynmanEquations.csv"  # Local (synced via repo)
+  data_dir:    "/content/drive/MyDrive/SymbolicRegression/Feynman_with_units/"
+  cache_dir:   "/content/drive/MyDrive/SymbolicRegression/cache/"
   
   # Synthetic data (25k+ equations)
   synthetic_cache: "/content/drive/MyDrive/SymbolicRegression/cache/synthetic_small"
@@ -26,7 +26,7 @@ data:
     7: 0.05   # AI Feynman: ~5%
     8: 0.015  # AI Feynman: ~1%
     9: 0.005  # AI Feynman: ~1%
-  
+
   # DataLoader
   n_rows:      200                      # Very small for fast training
   max_n_vars:  9                        # Reduced padding (vs 9)
@@ -34,6 +34,9 @@ data:
   num_workers: 4                        # More workers for faster data loading (was 2)
   chunk_size:  100                      # Smaller chunks (more frequent saves, easier debugging)
   max_cache_size: 16                    # Larger cache for more chunks
+  
+  # AIF cache directory (MUST be in Drive)
+  cache_dir:   "/content/drive/MyDrive/SymbolicRegression/cache/"
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
