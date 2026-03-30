@@ -71,12 +71,12 @@ loss:
 training:
   lr:            5e-4                   # Higher LR for small model
   weight_decay:  1e-2
-  max_epochs:    15                     # More epochs for small data
+  max_epochs:    20                     # Increased from 15 for better convergence
   warmup_steps:  500                    # Shorter warmup
   use_synthetic: true
   gradient_clip: 1.0
-  val_check_interval: 200               # Validate every 200 steps (was 100) - 2x faster
-  limit_val_batches: 0.2                # 20% of validation (was 30%) - faster validation
+  val_check_interval: 50                # Validate every 50 steps (must be < num_train_batches)
+  limit_val_batches: 0.2                # 20% of validation - faster validation
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging:
