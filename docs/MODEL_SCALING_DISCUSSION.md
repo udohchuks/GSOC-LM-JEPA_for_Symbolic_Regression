@@ -1,9 +1,9 @@
-# Model Scaling Discussion - 20k Synthetic Data
+# Model Scaling Discussion - 25k Synthetic Data
 
 ## Current Situation
 
 **Your Requirements:**
-- Dataset size: ~20k synthetic equations
+- Dataset size: ~25k synthetic equations
 - Target: <1M parameters (currently 3.4M)
 - Goal: Avoid overfitting on small dataset
 
@@ -23,7 +23,7 @@ m_inducing:   32
 ```
 
 ### Problem
-Training a 3.4M parameter model on only 20k equations will **severely overfit**:
+Training a 3.4M parameter model on only 25k equations will **severely overfit**:
 - **Parameter-to-data ratio:** 170 params per equation (way too high)
 - **Rule of thumb:** Should be 5-10 params per data point for good generalization
 - **Expected behavior:** Training loss → 0, Validation loss → high
@@ -74,7 +74,7 @@ Based on architecture analysis:
 
 4. **n_isab: 2 → 1, n_col_attn: 2 → 1**
    - These are attention mechanisms within encoder
-   - For 20k equations, single pass is sufficient
+   - For 25k equations, single pass is sufficient
 
 5. **m_inducing: 32 → 16**
    - Inducing points for set attention
@@ -112,7 +112,7 @@ m_inducing:   24
 ```
 **Use when:** 50k equations, want better performance
 
-### Option C: Current Tiny (~800K params) - FOR 20K DATA ⭐
+### Option C: Current Tiny (~800K params) - FOR 25K DATA ⭐
 ```yaml
 d_model:      48
 n_heads:      4
@@ -122,7 +122,7 @@ n_isab:       1
 n_col_attn:   1
 m_inducing:   16
 ```
-**Use when:** 20k equations (YOUR CASE)
+**Use when:** 25k equations (YOUR CASE)
 
 ---
 
@@ -154,11 +154,11 @@ m_inducing:   16
 
 ## Expected Performance
 
-### Tiny Model (800K) on 20k Equations
+### Tiny Model (800K) on 25k Equations
 
 | Metric | Expected | Notes |
 |--------|----------|-------|
-| **Training Time** | 2-3 hrs | Colab T4, 15 epochs |
+| **Training** | Efficient | Colab T4, 15 epochs |
 | **GPU Memory** | ~4GB | Well within Colab Free |
 | **Exact Recovery** | 15-25% | Reasonable for small data |
 | **Mean R²** | 0.6-0.75 | Good baseline |
@@ -169,16 +169,15 @@ m_inducing:   16
 | Metric | Base (3.4M) | Tiny (800K) |
 |--------|-------------|-------------|
 | Params | 3.4M | 0.8M |
-| Train Time | 8-10 hrs | 2-3 hrs |
 | GPU Memory | 10-12GB | 4GB |
-| Overfitting (20k data) | Severe | Minimal |
-| Performance (20k data) | Poor (overfits) | Better (fits well) |
+| Overfitting (25k data) | Severe | Minimal |
+| Performance (25k data) | Poor (overfits) | Better (fits well) |
 
 ---
 
 ## Recommendations
 
-### For Your 20k Dataset:
+### For Your 25k Dataset:
 
 1. **Use `configs/small_20k_config.yaml`** as-is
    - Already tuned for your use case
@@ -199,7 +198,7 @@ m_inducing:   16
 4. **If Underfitting:**
    - Increase epochs (15 → 20)
    - Increase d_model (48 → 56)
-   - Add more synthetic data (20k → 30k)
+   - Add more synthetic data (25k → 50k)
 
 ---
 
@@ -207,7 +206,7 @@ m_inducing:   16
 
 1. **Review the config:** `configs/small_20k_config.yaml`
 2. **Discuss adjustments:** Any specific constraints?
-3. **Generate 20k data:** Using the small config
+3. **Generate 25k data:** Using the small config
 4. **Train and evaluate:** Monitor for overfitting
 
 ---

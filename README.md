@@ -27,7 +27,7 @@ The synthetic data generator creates physics-informed mathematical expressions f
 - **Operator Weighting:** Biased toward physics-common operators (*, /, inv, sqrt, exp)
 
 **Configuration Guide:**
-- **20k-50k equations (~1M params, tiny predictor):** Use `configs/small.yaml`
+- **25k-50k equations (~1M params, tiny predictor):** Use `configs/small.yaml`
 - **100k+ equations (~3.4M params):** Use `configs/base_config.yaml`
 
 **Full Documentation:**
@@ -83,11 +83,11 @@ python -m data.compare_datasets \
 
 Three ready-to-run Colab notebooks for the complete workflow:
 
-| Notebook | Purpose | Runtime | Duration |
-|----------|---------|---------|----------|
-| [01_generate_synthetic_data.ipynb](notebooks/01_generate_synthetic_data.ipynb) | Generate 1M synthetic equations | T4 GPU | 4-8 hrs |
-| [02_train_model.ipynb](notebooks/02_train_model.ipynb) | Pretrain LLM-JEPA model | T4 GPU | 6-12 hrs |
-| [03_evaluate_model.ipynb](notebooks/03_evaluate_model.ipynb) | Evaluate on AI Feynman | T4 GPU | 1-2 hrs |
+| Notebook | Purpose | Runtime |
+|----------|---------|---------|
+| [01_generate_synthetic_data.ipynb](notebooks/01_generate_synthetic_data.ipynb) | Generate 1M synthetic equations | T4 GPU |
+| [02_train_model.ipynb](notebooks/02_train_model.ipynb) | Pretrain LLM-JEPA model | T4 GPU |
+| [03_evaluate_model.ipynb](notebooks/03_evaluate_model.ipynb) | Evaluate on AI Feynman | T4 GPU |
 
 **Quick Start:**
 1. Open any notebook in Colab

@@ -2,13 +2,13 @@
 
 ## Overview
 
-For training on **20k-50k synthetic equations**, a full-sized model (3.4M params) is overkill and will overfit. This guide provides scaled-down configurations with **~1M parameters** and a **small predictor** to prevent overfitting.
+For training on **25k-50k synthetic equations**, a full-sized model (3.4M params) is overkill and will overfit. This guide provides scaled-down configurations with **~1M parameters** and a **small predictor** to prevent overfitting.
 
 ---
 
 ## Model Configurations
 
-### Tiny Model (~1M parameters) ⭐ RECOMMENDED for 20k-50k
+### Tiny Model (~1M parameters) ⭐ RECOMMENDED for 25k-50k
 
 **Config:** `configs/small_20k_config.yaml`
 
@@ -44,9 +44,7 @@ model:
 
 **Key Achievement:** Predictor is only 2.5K params (0.2%) vs 200K (6%) in base!
 
-**Training Time (Colab T4):**
-- 20k equations, 15 epochs: **~3-4 hours**
-- Memory usage: **~5GB GPU RAM**
+**Training:** Efficient on Colab T4 GPU with ~5GB GPU RAM usage.
 
 ---
 
@@ -77,7 +75,7 @@ model:
 | **TOTAL** | **~1.5M** | **100%** |
 
 **Training Time (Colab T4):**
-- 50k equations, 15 epochs: **~4-5 hours**
+- 50k equations, 15 epochs
 - Memory usage: **~6GB GPU RAM**
 
 ---
@@ -109,25 +107,25 @@ model:
 
 ### By Dataset Size
 
-| Synthetic Equations | Recommended Model | Parameters | Training Time |
-|---------------------|------------------|------------|---------------|
-| **10k-30k** | Tiny (48 dim) | ~800K | 2-3 hrs |
-| **30k-100k** | Small (64 dim) | ~1.5M | 4-6 hrs |
-| **100k-500k** | Base (128 dim) | ~3.4M | 8-12 hrs |
-| **500k-1M+** | Base (128 dim) | ~3.4M | 15-20 hrs |
+| Synthetic Equations | Recommended Model | Parameters |
+|---------------------|------------------|------------|
+| **10k-30k** | Tiny (48 dim) | ~800K |
+| **30k-100k** | Small (64 dim) | ~1.5M |
+| **100k-500k** | Base (128 dim) | ~3.4M |
+| **500k-1M+** | Base (128 dim) | ~3.4M |
 
 ### By Hardware
 
 | Hardware | Recommended Model | Max Equations |
 |----------|------------------|---------------|
-| **Colab Free (T4, 16GB)** | Tiny (48 dim) | 20k |
+| **Colab Free (T4, 16GB)** | Tiny (48 dim) | 25k |
 | **Colab Pro (V100, 16GB)** | Small (64 dim) | 50k |
 | **Colab Pro+ (A100, 40GB)** | Base (128 dim) | 200k+ |
 | **Cloud (8x V100)** | Base (128 dim) | 1M+ |
 
 ---
 
-## Quick Start (20k Equations)
+## Quick Start (25k Equations)
 
 ### 1. Generate Data
 
@@ -136,9 +134,9 @@ python -m data.generate_data --config configs/small_20k_config.yaml
 ```
 
 **Expected:**
-- Time: ~15-20 minutes (4 workers)
-- Output: `cache/synthetic_20k/` (~40 parts, 500 eq each)
-- Size: ~8-10 GB
+- 4 workers for data generation
+- Output: `cache/synthetic_25k/` (~50 parts, 500 eq each)
+- Size: ~10-12 GB
 
 ### 2. Train Model
 
@@ -147,9 +145,9 @@ python -m training.train --config configs/small_20k_config.yaml
 ```
 
 **Expected:**
-- Time: ~2-3 hours (Colab T4)
+- Runs on Colab T4 GPU
 - Checkpoints: `checkpoints_small/`
-- TensorBoard: `tb_logs/small_20k/`
+- TensorBoard: `tb_logs/small_25k/`
 
 ### 3. Evaluate
 
@@ -165,7 +163,7 @@ python -m run_eval \
 
 ### Overfitting Prevention
 
-| Model Size | 20k Data | 100k Data | 1M Data |
+| Model Size | 25k Data | 100k Data | 1M Data |
 |------------|----------|-----------|---------|
 | **800K params** | ✅ Good fit | ⚠️ Slight underfit | ❌ Severe underfit |
 | **1.5M params** | ❌ Overfits | ✅ Good fit | ⚠️ Slight underfit |
@@ -175,7 +173,7 @@ python -m run_eval \
 
 **Optimal parameter count ≈ 5-10% of dataset size**
 
-- 20k equations → 100k-200k params minimum → **800K model** (4x buffer)
+- 25k equations → 100k-200k params minimum → **800K model** (4x buffer)
 - 100k equations → 500k-1M params minimum → **1.5M model** (1.5x buffer)
 - 1M equations → 5M-10M params minimum → **3.4M model** (within range)
 
@@ -183,7 +181,7 @@ python -m run_eval \
 
 ## Performance Expectations
 
-### Tiny Model (~1M) on 20k-50k Equations
+### Tiny Model (~1M) on 25k-50k Equations
 
 **After 15 epochs:**
 - Training Loss: ~0.4-0.6
@@ -199,7 +197,7 @@ python -m run_eval \
 - ✅ Fits on Colab Free (~5GB VRAM)
 
 **Not SOTA, but:**
-- ✅ Fast iteration (train in 3-4 hours)
+- ✅ Fast iteration on consumer GPUs
 - ✅ Good for prototyping
 - ✅ Reasonable baseline for small data
 - ✅ Can scale to 50k equations without changes

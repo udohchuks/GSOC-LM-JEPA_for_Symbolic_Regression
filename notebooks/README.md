@@ -24,15 +24,15 @@ This folder contains 3 Colab notebooks for the complete LLM-JEPA workflow:
 ```
 1️⃣ 01_generate_synthetic_data.ipynb  ← Run FIRST (generates training data)
    ↓
-   │ Default: 20k equations (~1-2 hours)
+   │ Default: 25k equations
    ↓
 2️⃣ 02_train_model.ipynb              ← Run SECOND (needs synthetic data)
    ↓
-   │ Default: configs/small.yaml, 15 epochs (~3-4 hours)
+   │ Default: configs/small.yaml, 15 epochs
    ↓
 3️⃣ 03_evaluate_model.ipynb           ← Run THIRD (needs trained checkpoint)
    ↓
-   │ Evaluates on all 100 AI Feynman equations (~1-2 hours)
+   │ Evaluates on all 100 AI Feynman equations
 ```
 
 **❗ Do NOT skip steps:**
@@ -102,7 +102,6 @@ SymbolicRegression/
 │                                                                  │
 │  1️⃣  GENERATE                                                    │
 │      Notebook: 01_generate_synthetic_data.ipynb                 │
-│      Time: ~4-8 hours                                           │
 │      Output: SymbolicRegression/cache/synthetic_small/            │
 │                                                                  │
 │      ⏳ Wait for completion before proceeding!                   │
@@ -111,7 +110,6 @@ SymbolicRegression/
 │                                                                  │
 │  2️⃣  TRAIN                                                      │
 │      Notebook: 02_train_model.ipynb                             │
-│      Time: ~6-12 hours                                          │
 │      Output: SymbolicRegression/checkpoints/                    │
 │                                                                  │
 │      ⏳ Wait for completion before proceeding!                   │
@@ -120,7 +118,6 @@ SymbolicRegression/
 │                                                                  │
 │  3️⃣  EVALUATE                                                   │
 │      Notebook: 03_evaluate_model.ipynb                          │
-│      Time: ~1-2 hours                                           │
 │      Output: SymbolicRegression/results/                        │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -130,7 +127,6 @@ SymbolicRegression/
 - Each step depends on the previous one completing
 - All outputs saved to Google Drive (persist across sessions)
 - Can resume interrupted steps (notebooks support resume)
-- Total time: ~11-22 hours (spread across multiple sessions if needed)
 
 ---
 
@@ -148,7 +144,6 @@ SymbolicRegression/
 **Output:** `SymbolicRegression/cache/synthetic_small/`
 
 **Tips:**
-- Takes ~4-8 hours on Colab T4
 - Data saved incrementally (1000 equations per file)
 - Can resume if interrupted
 
@@ -277,11 +272,7 @@ SymbolicRegression/
 | Train | ✅ Works | ✅ Better | ✅ Best |
 | Evaluate | ✅ Works | ✅ Faster | ✅ Fastest |
 
-**Estimated Colab Pro hours:**
-- Generate: ~6 hours
-- Train: ~8 hours
-- Evaluate: ~2 hours
-- **Total: ~16 hours** (~1 month of Pro with moderate use)
+**Note:** Colab Pro provides longer runtime sessions, which is beneficial for the complete workflow.
 
 ---
 

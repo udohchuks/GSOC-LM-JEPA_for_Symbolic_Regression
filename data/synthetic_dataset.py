@@ -1521,49 +1521,53 @@ def _generate_corpus(
         except ImportError:
             pbar = None
 
-        for eq in results:
-            n_attempted += 1
-            if eq is not None:
-                equations.append(eq)
-                if pbar:
-                    pbar.update(1)
-                elif verbose and len(equations) % 100 == 0:
-                    prog = len(equations) + chunk_count * chunk_size
-                    rate = prog / n_attempted * 100
-                    print(f"  {prog}/{n_equations} | attempts: {n_attempted} | yield: {rate:.1f}%")
+        try:
+            for eq in results:
+                n_attempted += 1
+                if eq is not None:
+                    equations.append(eq)
+                    if pbar:
+                        pbar.update(1)
+                    elif verbose and len(equations) % 100 == 0:
+                        prog = len(equations) + chunk_count * chunk_size
+                        rate = prog / n_attempted * 100
+                        print(f"  {prog}/{n_equations} | attempts: {n_attempted} | yield: {rate:.1f}%")
 
-                # Atomic Incremental Save
-                if cache_dir and len(equations) >= chunk_size:
-                    part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
-                    tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
-                    # Atomic write: save to .tmp and rename
-                    print(f"\n💾 Saving chunk {chunk_count} ({len(equations)} equations)...")
-                    torch.save(equations, str(tmp_path))
-                    # Get size before rename
-                    tmp_size = tmp_path.stat().st_size / 1024 / 1024
-                    tmp_path.replace(part_path)
-                    print(f"   ✅ Saved {part_path.name} ({tmp_size:.1f} MB)")
+                    # Atomic Incremental Save
+                    if cache_dir and len(equations) >= chunk_size:
+                        part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
+                        tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
+                        # Atomic write: save to .tmp and rename
+                        print(f"\n💾 Saving chunk {chunk_count} ({len(equations)} equations)...")
+                        torch.save(equations, str(tmp_path))
+                        # Get size before rename
+                        tmp_size = tmp_path.stat().st_size / 1024 / 1024
+                        tmp_path.replace(part_path)
+                        print(f"   ✅ Saved {part_path.name} ({tmp_size:.1f} MB)")
 
-                    # Cooldown for filesystem sync (especially on cloud storage)
-                    import time
-                    time.sleep(1.0)
+                        # Cooldown for filesystem sync (especially on cloud storage)
+                        import time
+                        time.sleep(1.0)
 
-                    equations = [] # Clear RAM!
-                    chunk_count += 1
+                        equations = [] # Clear RAM!
+                        chunk_count += 1
 
-            # Check if we've generated enough NEW equations (n_equations is the remaining needed)
-            if len(equations) >= n_equations:
-                break
-
-        # Save remainder
-        if cache_dir and equations:
-            part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
-            tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
-            torch.save(equations, str(tmp_path))
-            tmp_path.replace(part_path)
-
-        if pbar:
-            pbar.close()
+                # Check if we've generated enough NEW equations (n_equations is the remaining needed)
+                if len(equations) >= n_equations:
+                    break
+        finally:
+            # Save remainder before cleanup
+            if cache_dir and equations:
+                part_path = Path(cache_dir) / f"part_{chunk_count}.pt"
+                tmp_path  = Path(cache_dir) / f"part_{chunk_count}.pt.tmp"
+                torch.save(equations, str(tmp_path))
+                tmp_path.replace(part_path)
+            
+            # Clean up: terminate pool and close progress bar
+            pool.terminate()
+            pool.join()
+            if pbar:
+                pbar.close()
 
     if verbose:
         total_new = chunk_count * chunk_size + len(equations)
