@@ -110,6 +110,8 @@ def fit_and_score(
     
     Uses multi-restart BFGS with diverse initializations for better convergence.
     """
+    final_expr = None
+    optimized_expr = None
     try:
         # Define local symbols for parsing
         local_dict = {name: sympy.Symbol(name) for name in var_names}
@@ -146,7 +148,12 @@ def fit_and_score(
             # Evaluate directly
             f = sympy.lambdify([sympy.Symbol(v) for v in var_names], final_expr, 'numpy')
             y_pred = f(*X.T)
-            r2 = r2_score(y_true, y_pred)
+            
+            mask = np.isfinite(y_pred) & np.isfinite(y_true)
+            if np.sum(mask) < 2:
+                r2 = -np.inf
+            else:
+                r2 = r2_score(y_true[mask], y_pred[mask])
             return {'expression': str(final_expr), 'r2': r2, 'tokens': tokens}
 
         # BFGS Setup - Create lambdified function ONCE for numerical stability
@@ -161,8 +168,10 @@ def fit_and_score(
             try:
                 args = list(X.T) + list(params)
                 y_p = f_lambdified(*args)
-                if not np.all(np.isfinite(y_p)): return 1e12
-                return float(np.mean((y_true - y_p) ** 2))
+                mask = np.isfinite(y_p)
+                if np.sum(mask) < 2: return 1e12
+                # Calculate MSE only on valid numbers
+                return float(np.mean((y_true[mask] - y_p[mask]) ** 2))
             except Exception:
                 return 1e12
 
@@ -194,8 +203,9 @@ def fit_and_score(
                 try:
                     args = list(X.T) + list(res.x)
                     y_p = f_lambdified(*args)
-                    if np.all(np.isfinite(y_p)):
-                        r2 = r2_score(y_true, y_p)
+                    mask = np.isfinite(y_p) & np.isfinite(y_true)
+                    if np.sum(mask) >= 2:
+                        r2 = r2_score(y_true[mask], y_p[mask])
                         if r2 > best_r2:
                             best_r2 = r2
                             best_params = res.x
@@ -211,7 +221,12 @@ def fit_and_score(
         optimized_expr = final_expr.subs(best_subs)
         f_final = sympy.lambdify([sympy.Symbol(v) for v in var_names], optimized_expr, 'numpy')
         y_final = f_final(*X.T)
-        r2 = r2_score(y_true, y_final)
+        
+        mask = np.isfinite(y_final) & np.isfinite(y_true)
+        if np.sum(mask) < 2:
+            r2 = -np.inf
+        else:
+            r2 = r2_score(y_true[mask], y_final[mask])
 
         return {
             'expression': str(optimized_expr),
@@ -221,8 +236,14 @@ def fit_and_score(
         }
 
     except Exception as e:
+        fallback_expr = skeleton_str
+        if optimized_expr is not None:
+            fallback_expr = str(optimized_expr)
+        elif final_expr is not None:
+            fallback_expr = str(final_expr)
+            
         return {
-            'expression': skeleton_str,
+            'expression': fallback_expr,
             'r2': -np.inf,
             'tokens': tokens,
             'fitted_params': [],
