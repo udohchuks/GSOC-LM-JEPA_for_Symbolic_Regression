@@ -20,6 +20,7 @@ Run offline, parallelised across CPU cores.
 from __future__ import annotations
 import numpy as np
 import sympy
+import torch
 from typing import List, Optional, Tuple, Dict
 from dataclasses import dataclass, field
 import random
@@ -1112,7 +1113,6 @@ def generate_one_equation(
 
 # ── PyTorch Dataset ───────────────────────────────────────────────────────────
 
-import torch
 from torch.utils.data import Dataset, DataLoader
 from data.aif_dataset import collate_fn   # reuse same collate function
 
