@@ -34,25 +34,27 @@ def merge_chunks(cache_dir: str, new_chunk_size: int = 1000):
     print(f"Target chunk size: {new_chunk_size} equations")
     print()
     
-    # Load all equations
-    print("Step 1: Loading all equations...")
+    # Load all equations with parallel loading (32 threads for I/O-bound)
+    print("Step 1: Loading all equations (32-thread parallel)...")
     t0 = time.perf_counter()
     all_equations = []
     
-    for i, chunk_file in enumerate(chunk_files):
+    from concurrent.futures import ThreadPoolExecutor
+    
+    def load_chunk(chunk_file):
         try:
             data = torch.load(chunk_file, map_location='cpu', weights_only=False)
-            if isinstance(data, list):
-                all_equations.extend(data)
-            else:
-                all_equations.append(data)
-            
+            return data if isinstance(data, list) else [data]
+        except Exception as e:
+            print(f"   ⚠️  Warning: Failed to load {chunk_file.name}: {e}")
+            return []
+    
+    with ThreadPoolExecutor(max_workers=32) as executor:
+        for i, chunk_data in enumerate(executor.map(load_chunk, chunk_files)):
+            all_equations.extend(chunk_data)
             if (i + 1) % 500 == 0:
                 elapsed = time.perf_counter() - t0
                 print(f"   Loaded {i+1:,}/{len(chunk_files):,} chunks ({len(all_equations):,} equations) - {elapsed:.1f}s")
-                
-        except Exception as e:
-            print(f"   ⚠️  Warning: Failed to load {chunk_file.name}: {e}")
     
     elapsed = time.perf_counter() - t0
     print(f"✅ Loaded {len(all_equations):,} equations in {elapsed:.1f}s")

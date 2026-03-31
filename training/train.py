@@ -63,7 +63,7 @@ class ContiguousChunkSampler(Sampler):
 
 def main():
     parser = argparse.ArgumentParser(description="Train LLM-JEPA")
-    parser.add_argument("--config", type=str, default="configs/base_config.yaml", help="Path to config file")
+    parser.add_argument("--config", type=str, default="configs/small.yaml", help="Path to config file")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -148,6 +148,9 @@ def main():
         )
         
         print(f"✅ In-Memory dataset loaded: {len(full_dataset):,} equations")
+        print(f"   Projected total: {full_dataset._projected_total:,} equations ({full_dataset._total_chunks:,} chunks)")
+        print(f"   Initial loaded: {len(full_dataset.equations):,} equations")
+        print(f"   Background loading: {'Active' if full_dataset._loading_complete == False else 'Complete'}")
     else:
         # Traditional Lazy loading from Drive
         from data.synthetic_dataset import LazySyntheticDataset, ContiguousChunkSampler
@@ -202,9 +205,12 @@ def main():
     )
     
     print(f"\n✅ Data loaders ready:")
-    print(f"   Train: {len(train_dataset):,} synthetic equations")
-    print(f"   Val:   {len(val_dataset):,} synthetic equations")
-    print(f"   Test:  AIF evaluation set (separate)")
+    if use_inmemory:
+        print(f"   Train: {train_size:,}/{full_dataset._projected_total:,} equations (background loading)")
+        print(f"   Val:   {val_size:,}/{full_dataset._projected_total:,} equations")
+    else:
+        print(f"   Train: {len(train_dataset):,} synthetic equations")
+        print(f"   Val:   {len(val_dataset):,} synthetic equations")
     print(f"   Test:  {len(test_loader.dataset)} AIF equations (separate)")
 
     # ── 3. Model ─────────────────────────────────────────────────────────────
@@ -280,7 +286,7 @@ def main():
             LearningRateMonitor(), 
         ],
         log_every_n_steps=cfg_log.get('log_every_n_steps', 10),
-        val_check_interval=int(cfg_train.get('val_check_interval', 500)),
+        val_check_interval=cfg_train.get('val_check_interval', 1.0),
         limit_val_batches=cfg_train.get('limit_val_batches', 1.0),
         gradient_clip_val=GRADIENT_CLIP,
         enable_progress_bar=True,

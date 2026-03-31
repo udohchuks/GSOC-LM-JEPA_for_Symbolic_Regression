@@ -1,5 +1,7 @@
 # LLM-JEPA for Symbolic Regression — Project Overview
 
+> **Google Summer of Code 2026 Project** | ML4SCI
+
 > **What it does:** Given a table of numerical observations (`X`, `y`), the model generates a concise mathematical formula that describes the relationship — like `F = m * a` or `E = q / (4πε₀r²)` — in a physically consistent, human-interpretable form.
 
 ---
@@ -8,22 +10,33 @@
 
 Symbolic Regression (SR) is the task of discovering the underlying mathematical law governing a dataset, not just fitting a curve. This is harder than standard regression because the output is a symbolic expression with arbitrary structure, not a fixed-length vector.
 
-Classical SR (genetic programming, MCTS) is slow — O(hours per equation). Neural approaches must be fast enough to generate a formula in milliseconds from raw data.
+**Key Challenge:** Classical SR (genetic programming, MCTS) is slow — O(hours per equation). Neural approaches must be fast enough to generate a formula in milliseconds from raw data.
+
+**Open Question:** Does encoding physics knowledge (dimensional analysis, unit constraints) at every level of the architecture improve symbolic regression over purely data-driven approaches trained at scale?
+
+**Related Work:** End-to-End Symbolic Regression (Kamienny et al. 2022) achieves competitive results through scale alone (10M equations, no physical constraints). Whether physics-informed inductive biases improve sample efficiency and generalization remains an open question.
 
 ---
 
-## The Approach: LLM-JEPA + ODEFormer Inference
+## The Approach: Physics-Informed LM-JEPA
 
 This project combines three ideas:
 
-**JEPA (Joint Embedding Predictive Architecture):**
+**1. JEPA (Joint Embedding Predictive Architecture):**
 Instead of reconstructing the input, the model learns a *representation* of the data (`z_context`) and separately encodes the formula (`z_target`), then trains a predictor to bridge them. This produces rich, abstract data representations that don't over-fit to surface-level patterns.
 
-**LLM-style Decoder:**
-The data representation is fed to an autoregressive decoder that generates formulas token-by-token in Reverse Polish Notation (RPN). RPN eliminates parentheses and makes the grammar checkable at every step with a simple stack counter — invalid tokens can be hard-blocked during generation.
+**2. Physics-Informed Inductive Biases:**
+- **Dimensional Analysis:** Variables encoded with SI unit vectors (mass, length, time, current, temperature). Unit prediction head provides auxiliary training signal
+- **RPN with Validity Masking:** Stack-depth counter enables O(1) grammar-constrained generation. Invalid tokens hard-blocked during inference
+- **Physics-Informed Synthetic Data:** 55+ equation templates (inverse-square, relativistic, energy, waves) with dimensional consistency enforced at every node
 
-**ODEFormer-Style Inference (Sampling & Ranking):**
+**3. ODEFormer-Style Inference (Sampling & Ranking):**
 At inference, the model generates a diverse pool of N candidates (default 50) using temperature-controlled sampling. Each candidate is skeletonized (constants replaced with placeholders), deduplicated, and constants are fitted using BFGS optimization. Candidates are ranked by R² on the full dataset, and the best is selected. This "diversity search" dramatically improves recovery rates compared to greedy decoding.
+
+**Training Stability via SIGReg:**
+The core challenge in JEPA training is representation collapse: both encoders converge to a constant output. The conventional fix is an Exponential Moving Average (EMA) target encoder, which introduces a momentum hyperparameter and blocks all gradients through the target encoder.
+
+This project implements **Sketched Isotropic Gaussian Regularisation (SIGReg)** from LeJEPA (Dieuleveut et al. 2024). SIGReg constrains both `z_context` and `z_target` to follow a standard isotropic Gaussian by applying the Epps-Pulley statistical test across 512 random 1D projections. Collapse is structurally prevented: a Gaussian has nonzero isotropic variance by definition. No EMA and no additional hyperparameters are needed.
 
 Together: the encoder learns *what the data means*, the decoder *writes the formula*, and ODEFormer inference *finds the best candidate*.
 
@@ -90,10 +103,10 @@ Output: "x1 x2 * x3 +" → sympy.parse → F = x1*x2 + x3
 | **BFGS Post-processing** | Numerical constants (e.g. `2.718`, `9.81`) are represented as placeholder tokens (`c1`...`c5`) during generation, then fitted to data with SciPy's L-BFGS-B optimizer (100 iterations, 5 restarts). This cleanly separates symbolic structure from numerical optimization. |
 | **Diversity Pool Sampling & R² Ranking** | To maximize recovery, the model samples N candidates (default 50) using temperature-controlled sampling (T=0.1). Unique skeletons are deduplicated, constants are fitted with BFGS, and candidates are ranked by R² on the FULL dataset. This "diversity search" is critical for recovering complex formulas. |
 | **Goldilocks Evaluation Metrics** | Three core metrics provide complete performance picture: (1) R² for numeric precision, (2) Symbolic Accuracy for functional equivalence via random point evaluation, (3) Normalized Edit Distance (NED) for structural similarity via prefix trees. |
-| **ISAB encoder** | Induced Self-Attention Block uses M=32 inducing points. Reduces O(N²) attention to O(N·M) for N data points — critical for tables with thousands of rows. |
+| **ISAB encoder** | Induced Self-Attention Block uses M=20 inducing points. Reduces O(N²) attention to O(N·M) for N data points — critical for tables with thousands of rows. |
 | **Synthetic pretraining + AIF fine-tuning** | Pretraining on physics-informed synthetic equations (dimensionally valid by construction) gives the model a strong prior. The AI Feynman dataset is used for evaluation/fine-tuning. |
-| **Centralized Configuration** | All hyperparameters in `configs/base_config.yaml`. Tune `pool_size`, `temperature`, `max_iter` (BFGS), and `n_workers` without touching Python code. |
-| **Chunked Data Loading** | Synthetic data saved in chunks (2000 equations/part) with lazy loading. Supports num_workers=4+ on Colab with thread-safe cache and LRU eviction (~32 MB memory). |
+| **Centralized Configuration** | All hyperparameters in `configs/small.yaml` (GSoC baseline, ~1M params) or `configs/base_config.yaml` (full scale, ~3.4M params). Tune `pool_size`, `temperature`, `max_iter` (BFGS), and `n_workers` without touching Python code. |
+| **Chunked Data Loading** | Synthetic data saved in chunks (100-2000 equations/part) with lazy loading. Supports num_workers=4+ on Colab with thread-safe cache and LRU eviction (~32 MB memory). |
 
 ---
 
@@ -158,15 +171,18 @@ GSOC-LM-JEPA_for_Symbolic_Regression/
 Large-scale pretraining requires a synthetic corpus. Generate this **before** training:
 
 ```bash
-# Generate 1M equations with chunking (Colab-optimized)
+# Generate 25k equations (for ~1M param model, GSoC baseline)
+python -m data.generate_data --config configs/small.yaml
+
+# Generate 1M equations (for ~3.4M param model)
 python -m data.generate_data --config configs/base_config.yaml
 
 # This creates:
-#   cache/synthetic_1M/metadata_manifest.pt  (index for instant startup)
-#   cache/synthetic_1M/part_0.pt             (2000 equations)
-#   cache/synthetic_1M/part_1.pt             (2000 equations)
+#   cache/synthetic_small/metadata_manifest.pt  (index for instant startup)
+#   cache/synthetic_small/part_0.pt             (100 equations)
+#   cache/synthetic_small/part_1.pt             (100 equations)
 #   ...
-#   cache/synthetic_1M/part_499.pt           (2000 equations)
+#   cache/synthetic_small/part_254.pt           (100 equations)
 ```
 
 **Chunking benefits:**
@@ -178,15 +194,18 @@ python -m data.generate_data --config configs/base_config.yaml
 The training script uses `LazySyntheticDataset` to load chunks on-demand:
 
 ```bash
-# Training with chunked data loading
+# Training with chunked data loading (GSoC baseline)
+python -m training.train --config configs/small.yaml
+
+# Full-scale training
 python -m training.train --config configs/base_config.yaml
 ```
 
-**DataLoader configuration (from base_config.yaml):**
+**DataLoader configuration (from small.yaml):**
 ```yaml
 data:
   num_workers: 4           # Colab: 4, Cloud: 8+
-  chunk_size: 2000         # Equations per chunk file
+  chunk_size: 100          # Equations per chunk file
   max_cache_size: 16       # Max chunks in memory (~32 MB)
 ```
 
@@ -209,7 +228,7 @@ tensorboard --logdir tb_logs
 
 | Component | Memory |
 |-----------|--------|
-| **Per chunk file** | ~1-2 MB (2000 equations) |
+| **Per chunk file** | ~1-2 MB (100-2000 equations) |
 | **Max cache (16 chunks)** | ~16-32 MB |
 | **DataLoader prefetch (4 workers)** | ~8 MB |
 | **Total overhead** | ~24-40 MB |
@@ -224,12 +243,12 @@ This is far more efficient than loading 1M equations into RAM (~500 MB).
 
 ```bash
 # From a custom CSV file (last column = target y)
-python predict.py --config configs/base_config.yaml \
+python predict.py --config configs/small.yaml \
                   --ckpt checkpoints/best.ckpt \
                   --csv my_data.csv
 
 # From the Feynman dataset by equation ID
-python predict.py --config configs/base_config.yaml \
+python predict.py --config configs/small.yaml \
                   --ckpt checkpoints/best.ckpt \
                   --eq_id I.12.1
 ```
@@ -238,7 +257,7 @@ python predict.py --config configs/base_config.yaml \
 
 ### Inference Configuration
 
-All inference parameters are controlled via `configs/base_config.yaml`:
+All inference parameters are controlled via `configs/small.yaml`:
 
 ```yaml
 inference:
@@ -258,7 +277,7 @@ inference:
 ### Goldilocks Evaluation Suite
 
 ```bash
-python run_eval.py --config configs/base_config.yaml \
+python run_eval.py --config configs/small.yaml \
                    --ckpt checkpoints/best.ckpt
 ```
 
@@ -299,7 +318,7 @@ python run_eval.py --ckpt checkpoints/best.ckpt \
 
 For challenging periodic functions (sin, cos), increase BFGS budget:
 ```bash
-# Edit configs/base_config.yaml:
+# Edit configs/small.yaml:
 inference:
   max_iter: 200      # More iterations for complex functions
   n_restarts: 10     # More restarts for better coverage

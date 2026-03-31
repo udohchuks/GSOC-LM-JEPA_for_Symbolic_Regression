@@ -464,8 +464,17 @@ Standard cross-entropy loss over the vocabulary at each decoder position, but wi
 
 This avoids Python loops and runs as a single GPU kernel.
 
-**Why penalise invalid tokens more, rather than masking them to 0?**  
+**Why penalise invalid tokens more, rather than masking them to 0?**
 Hard masking (setting probability to 0) is done during *inference* via `get_valid_next_tokens`. During *training*, hard masking would mean the model receives no gradient signal for invalid tokens. Soft up-weighting still penalises them but lets gradients flow, helping the model learn the grammar more aggressively.
+
+**Important Fix (v4):** The stack depth calculation uses `cumsum(deltas)` **without shift**. This is correct because:
+- At position `t`, the model has seen `input_ids[:t+1]` (causal attention)
+- The validity of `targets[t]` depends on the stack state **after** processing `input_ids[:t+1]`
+- Example: `input_ids=[BOS,x1,x2,+]`, `targets=[x1,x2,+,EOS]`
+  - At t=2: target=`+` (binary), need stack≥2. After `[BOS,x1,x2]`, stack=2. ✓
+  - At t=3: target=`EOS`, need stack=1. After `[BOS,x1,x2,+]`, stack=1. ✓
+
+A shifted cumsum would incorrectly use the stack state **before** `input_ids[t]`, causing valid tokens to be penalized.
 
 #### `UnitLoss` — Dimensional Analysis Auxiliary Loss
 

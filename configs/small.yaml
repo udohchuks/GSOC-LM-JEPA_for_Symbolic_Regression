@@ -32,7 +32,7 @@ data:
   # LAZY MODE: Keep max_cache_size=128 and batch_size=256 for lower RAM usage
   n_rows:      200                      # Very small for fast training
   max_n_vars:  10                       # 9 input variables + 1 output y column
-  batch_size:  256                     # GPU REDLINE: 2048 (keeps GPU at 100%)
+  batch_size:  1024                    # GPU REDLINE: 1024-2048 (keeps GPU at 100%)
   num_workers: 8                       # Max out CPU throughput (was 4)
   chunk_size:  100                      #
   max_cache_size: -1                    # GPU REDLINE: -1 = load ALL into RAM (12-15GB)
