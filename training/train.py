@@ -25,7 +25,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader, Subset, Sampler
 
 from training.trainer import LLMJEPAModule
-from data.aif_dataset import build_aif_dataloader
+from data.aif_dataset import build_aif_dataloader, collate_fn
 from data.synthetic_dataset import build_synthetic_dataloader, LazySyntheticDataset
 # Enable Tensor Core utilization on NVIDIA GPUs (A100, H100, L4, etc.)
 torch.set_float32_matmul_precision('medium')
@@ -182,7 +182,7 @@ def main():
         )
         print(f"✅ Lazy dataset loaded: {len(full_dataset):,} equations")
     
-    from data.aif_dataset import collate_fn
+
     
     # Validation: Also synthetic (same distribution as training)
     val_loader = DataLoader(
