@@ -32,11 +32,11 @@ data:
   # LAZY MODE: Keep max_cache_size=128 and batch_size=256 for lower RAM usage
   n_rows:      200                      # Very small for fast training
   max_n_vars:  10                       # 9 input variables + 1 output y column
-  batch_size:  1024                    # GPU REDLINE: 1024-2048 (fitted for 5.4M model)
-  num_workers: 8                       # Max out CPU throughput (was 4)
+  batch_size:  256                      # LAZY MODE: Smaller batch for chunked loading
+  num_workers: 4                       # Moderate CPU usage for lazy loading
   chunk_size:  100                      #
-  max_cache_size: -1                    # GPU REDLINE: -1 = load ALL into RAM (12-15GB)
-                                        # LAZY MODE: 128 = cache 128 chunks (~2GB RAM)
+  max_cache_size: 128                   # LAZY MODE: cache 128 chunks (~2GB RAM)
+                                        # GPU REDLINE: -1 = load ALL into RAM (12-15GB)
   
   # AIF cache directory (MUST be in Drive)
   cache_dir:   "/content/drive/MyDrive/SymbolicRegression/cache/"
