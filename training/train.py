@@ -195,14 +195,7 @@ def main():
         persistent_workers=(NUM_WORKERS > 0)
     )
 
-    # Test/Evaluation: AIF (Feynman) dataset - separate loader, never mixed with train
-    test_loader = build_aif_dataloader(
-        csv_path=cfg_data['csv_path'],
-        data_dir=cfg_data['data_dir'],
-        batch_size=BATCH_SIZE,
-        cache_dir=cfg_data.get('cache_dir', 'cache/'),
-        num_workers=NUM_WORKERS,
-    )
+
     
     print(f"\n✅ Data loaders ready:")
     if use_inmemory:
@@ -211,7 +204,7 @@ def main():
     else:
         print(f"   Train: {len(train_dataset):,} synthetic equations")
         print(f"   Val:   {len(val_dataset):,} synthetic equations")
-    print(f"   Test:  {len(test_loader.dataset)} AIF equations (separate)")
+    print(f"   Test:  AIF evaluation set (postponed until end of training)")
 
     # ── 3. Model ─────────────────────────────────────────────────────────────
     model = LLMJEPAModule(
@@ -310,7 +303,15 @@ def main():
     print("Training complete. Best checkpoint saved.")
 
     # ── 7. Test on AIF dataset ────────────────────────────────────────────────
-    print("Running test evaluation on AIF (Feynman) dataset ...")
+    # Load AIF data only when needed for testing
+    test_loader = build_aif_dataloader(
+        csv_path=cfg_data['csv_path'],
+        data_dir=cfg_data['data_dir'],
+        batch_size=BATCH_SIZE,
+        cache_dir=cfg_data.get('cache_dir', 'cache/'),
+        num_workers=NUM_WORKERS,
+    )
+    print(f"✅ Test loader ready: {len(test_loader.dataset)} AI Feynman equations")
     trainer.test(model, dataloaders=test_loader, ckpt_path="best")
     print("Test complete. View logs with: tensorboard --logdir tb_logs")
 

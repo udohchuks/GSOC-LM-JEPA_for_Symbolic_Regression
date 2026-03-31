@@ -127,8 +127,28 @@ Communication: I will maintain weekly written progress updates to my mentor via 
 
 References
 Udrescu, S.-M. and Tegmark, M. (2019). AI Feynman: a Physics-Inspired Method for Symbolic Regression. arXiv:1905.11481.
+  Application: Used as the primary evaluation benchmark (100 equations). My work adopts their insight that dimensional analysis constrains the search space, but embeds it as a learned inductive bias (UnitEmbedder + UnitPredictionHead) rather than a hard rule-based filter.
+
 Kamienny, P.-A., d'Ascoli, S., Lample, G. and Charton, F. (2022). End-to-End Symbolic Regression with Transformers. NeurIPS 2022.
-Assran, M. et al. (2023). Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture. CVPR 2023.
-Dieuleveut, A. et al. (2024). LeJEPA: Learning Joint Embedding Predictive Architectures. arXiv preprint.
-Lee, J. et al. (2019). Set Transformer: A Framework for Attention-based Permutation-Invariant Neural Networks. ICML 2019.
+  Application: The closest baseline to my work. They treat equations as arbitrary token sequences and rely on scale (10M equations). My work asks whether physics-informed inductive biases at the data generation, embedding, and training objective levels can achieve competitive results at a smaller data budget (250K-1M vs 10M). The ablation studies directly isolate the contribution of each component relative to their approach.
+
 LeCun, Y. (2022). A Path Towards Autonomous Machine Intelligence. OpenReview preprint.
+  Application: JEPA (Joint Embedding Predictive Architecture) provides the foundational self-supervised framework. My work adapts JEPA to symbolic regression by treating the numerical data table as the context view and the equation token sequence as the target view, learning the structural correspondence between them in embedding space.
+
+Assran, M. et al. (2023). Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture. CVPR 2023.
+  Application: I-JEPA demonstrated that JEPA works for image representation learning. My work extends this to tabular scientific data: the MixEncoder processes IEEE-754 bit-encoded input tables, and the target encoder processes RPN formula sequences instead of image patches.
+
+Lee, J. et al. (2019). Set Transformer: A Framework for Attention-based Permutation-Invariant Neural Networks. ICML 2019.
+  Application: The MixEncoder uses Induced Self-Attention Blocks (ISAB) with M=32 learnable inducing points, reducing attention complexity from O(N²) to O(N·M). This is critical for handling tables with up to 100k data points per equation. Column attention then allows variables to exchange information, learning patterns like "force + distance → velocity".
+
+Dieuleveut, A. et al. (2024). LeJEPA: Learning Joint Embedding Predictive Architectures. arXiv preprint.
+  Application: SIGReg (Sketched Isotropic Gaussian Regularisation) replaces the conventional EMA target encoder. The Epps-Pulley statistical test across 512 random 1D projections constrains both z_context and z_target to isotropic Gaussian distributions, structurally preventing representation collapse without momentum hyperparameters. This enables end-to-end training with gradients flowing through both encoders—a key advantage over conventional JEPA.
+
+Balestriero, R. and LeCun, Y. (2025). LeWorldModel: Learning World Models with Joint Embedding Predictive Architectures.
+  Application: LeWorldModel extends SIGReg to world modeling. My work applies the same principle to symbolic regression: the model learns to predict equation structure from data, treating physics equations as latent structural relationships governing observed numerical data.
+
+Maes, L. et al. (2026). Advances in Joint Embedding Predictive Architectures for Scientific Discovery.
+  Application: Following their use of SIGReg for scientific representation learning, my work constrains both context and target embeddings to isotropic Gaussian distributions, enabling stable pretraining on 250K+ physics equations without representation collapse.
+
+Vladymyrov, M. et al. (2024). ODEFormer: Symbolic Regression with Transformer-based Ordinary Differential Equation Discovery.
+  Application: The inference pipeline adopts ODEFormer-style candidate generation and ranking: temperature sampling produces diverse formula candidates, constants are fitted via BFGS optimization (SciPy L-BFGS-B, 30 iterations, 5 restarts), and candidates are ranked by R² score rather than log probability. This eliminates trivial expressions and promotes structurally meaningful formulas.
