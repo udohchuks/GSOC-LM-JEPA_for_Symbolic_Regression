@@ -1399,9 +1399,15 @@ class LazySyntheticDataset(Dataset):
         if self.cache_dir.is_file():
             current_files = [self.cache_dir]
         else:
+            import re
+            def _extract_chunk_idx(p):
+                if '_' not in p.stem: return 0
+                match = re.search(r'\d+', p.stem.split('_')[1])
+                return int(match.group()) if match else 0
+
             current_files = sorted(
                 list(self.cache_dir.glob("part_*.pt")), 
-                key=lambda x: int(x.stem.split('_')[1]) if '_' in x.stem else 0
+                key=_extract_chunk_idx
             )
         
         new_files = [f for f in current_files if f not in self.all_files_seen]

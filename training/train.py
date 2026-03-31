@@ -64,7 +64,6 @@ class ContiguousChunkSampler(Sampler):
 def main():
     parser = argparse.ArgumentParser(description="Train LLM-JEPA")
     parser.add_argument("--config", type=str, default="configs/base_config.yaml", help="Path to config file")
-    parser.add_argument("--fresh", action="store_true", help="Force training from scratch (ignore checkpoints)")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -241,15 +240,12 @@ def main():
     # Auto-resume from last checkpoint if it exists
     ckpt_dir = cfg_ckpt.get('dirpath', 'checkpoints/')
     last_ckpt_path = Path(ckpt_dir) / "last.ckpt"
-    
-    resume_path = str(last_ckpt_path) if last_ckpt_path.exists() and not args.fresh else None
+    resume_path = str(last_ckpt_path) if last_ckpt_path.exists() else None
     
     if resume_path:
         print(f"Resuming training from: {resume_path}")
     else:
         print(f"Starting fresh training. Logs at: {logger.log_dir}")
-        if args.fresh:
-            print("(--fresh flag used: bypassing any existing checkpoints)")
         
     print("SIGReg mode: Both encoders trainable, NO EMA updates")
     trainer.fit(model, train_loader, val_loader, ckpt_path=resume_path)
