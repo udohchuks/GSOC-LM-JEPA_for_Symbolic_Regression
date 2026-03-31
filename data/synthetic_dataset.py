@@ -1296,24 +1296,24 @@ class SyntheticDataset(Dataset):
         # No more unpackbits overhead here.
         
         # ── Pad variable dimension to max_n_vars ──────────────────────────
-        # X_bits currently has n_vars + 1 columns (inputs + y)
-        pad_vars = self.max_n_vars - (n_vars + 1)
+        current_vars = X_bits.shape[1]
+        desired_vars = self.max_n_vars
         y_unit = np.full((1, 5), 4, dtype=np.int64)
         
-        if pad_vars > 0:
-            pad_x    = np.zeros(
-                (X_bits.shape[0], pad_vars, 16), dtype=np.float16
-            )
+        if current_vars < desired_vars:
+            pad_vars = desired_vars - current_vars
+            pad_x    = np.zeros((X_bits.shape[0], pad_vars, 16), dtype=np.float16)
             X_bits   = np.concatenate([X_bits, pad_x], axis=1)
+            
             pad_u    = np.full((pad_vars, 5), 4, dtype=np.int64)
-            unit_idx = np.concatenate(
-                [eq.unit_matrix_idx, y_unit, pad_u], axis=0
-            )
+            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit, pad_u], axis=0)
         else:
-            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit], axis=0)
+            X_bits   = X_bits[:, :desired_vars, :]
+            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit], axis=0)[:desired_vars, :]
 
         var_mask = np.zeros(self.max_n_vars, dtype=np.float32)
-        var_mask[:n_vars + 1] = 1.0  # +1 for y
+        valid_len = min(n_vars + 1, self.max_n_vars)
+        var_mask[:valid_len] = 1.0  # +1 for y
 
         return {
             'X_bits':           torch.from_numpy(X_bits), # [n_rows, max_n_vars, 16] float16
