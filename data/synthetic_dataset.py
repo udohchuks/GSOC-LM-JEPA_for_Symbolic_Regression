@@ -1295,25 +1295,40 @@ class SyntheticDataset(Dataset):
         # X_bits is now stored in expanded float16 format.
         # No more unpackbits overhead here.
         
-        # ── Pad variable dimension to max_n_vars ──────────────────────────
+        # ── Step 1: Handle Variable Columns (X and Y) ──────────────────
         current_vars = X_bits.shape[1]
         desired_vars = self.max_n_vars
-        y_unit = np.full((1, 5), 4, dtype=np.int64)
         
         if current_vars < desired_vars:
-            pad_vars = desired_vars - current_vars
-            pad_x    = np.zeros((X_bits.shape[0], pad_vars, 16), dtype=np.float16)
-            X_bits   = np.concatenate([X_bits, pad_x], axis=1)
-            
-            pad_u    = np.full((pad_vars, 5), 4, dtype=np.int64)
-            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit, pad_u], axis=0)
+            # Pad
+            pad_w  = desired_vars - current_vars
+            pad_x  = np.zeros((X_bits.shape[0], pad_w, 16), dtype=np.float16)
+            X_bits = np.concatenate([X_bits, pad_x], axis=1)
         else:
-            X_bits   = X_bits[:, :desired_vars, :]
-            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit], axis=0)[:desired_vars, :]
+            # Truncate
+            X_bits = X_bits[:, :desired_vars, :]
 
+        # ── Step 2: Handle Units (Corresponding to columns) ───────────
+        # Target (Y) unit is always index 4 ([0,0,0,1,0] simplified)
+        y_unit = np.full((1, 5), 4, dtype=np.int64)
+        
+        # Combine units for X (from metadata) and Y
+        x_units = eq.unit_matrix_idx # [n_vars, 5]
+        combined_units = np.concatenate([x_units, y_unit], axis=0)
+        
+        # Pad/Truncate units to reach desired_vars
+        current_u = combined_units.shape[0]
+        if current_u < desired_vars:
+            pad_u = np.full((desired_vars - current_u, 5), 4, dtype=np.int64)
+            unit_idx = np.concatenate([combined_units, pad_u], axis=0)
+        else:
+            unit_idx = combined_units[:desired_vars, :]
+
+        # ── Step 3: Masks ─────────────────────────────────────────────
         var_mask = np.zeros(self.max_n_vars, dtype=np.float32)
-        valid_len = min(n_vars + 1, self.max_n_vars)
-        var_mask[:valid_len] = 1.0  # +1 for y
+        # Mask only the columns that physically existed (original X + Y)
+        valid_len = min(current_vars, self.max_n_vars)
+        var_mask[:valid_len] = 1.0
 
         return {
             'X_bits':           torch.from_numpy(X_bits), # [n_rows, max_n_vars, 16] float16

@@ -109,7 +109,10 @@ def main():
     N_SYNTHETIC  = cfg_data.get('n_synthetic', 10000)
 
     # ── 2. Data Loaders ──────────────────────────────────────────────────────
-    # Point this to your COMPLETED 1M equation directory
+    # OPTION 4: Separate DataLoaders for Synthetic (train) and AIF (val/test)
+    # Synthetic data has Y for MSE loss, AIF does not
+    
+    # Training: Synthetic data only
     full_dataset = LazySyntheticDataset(
         cache_dir=cfg_data.get('synthetic_cache', 'cache/synthetic_1M'),
         max_n_vars=MAX_N_VARS,
@@ -122,7 +125,7 @@ def main():
 
     train_dataset = Subset(full_dataset, range(0, train_size))
     val_dataset   = Subset(full_dataset, range(train_size, len(full_dataset)))
-    
+
     # Use custom sampler to prevent Drive thrashing
     train_sampler = ContiguousChunkSampler(0, train_size, full_dataset)
 
@@ -137,6 +140,7 @@ def main():
         pin_memory=True,
         persistent_workers=(NUM_WORKERS > 0)
     )
+    # Validation: Also synthetic (same distribution as training)
     val_loader = DataLoader(
         val_dataset,
         batch_size=BATCH_SIZE,
@@ -147,7 +151,7 @@ def main():
         persistent_workers=(NUM_WORKERS > 0)
     )
 
-    # Test: always use the AIF (Feynman) dataset
+    # Test/Evaluation: AIF (Feynman) dataset - separate loader, never mixed with train
     test_loader = build_aif_dataloader(
         csv_path=cfg_data['csv_path'],
         data_dir=cfg_data['data_dir'],
@@ -155,6 +159,11 @@ def main():
         cache_dir=cfg_data.get('cache_dir', 'cache/'),
         num_workers=NUM_WORKERS,
     )
+    
+    print(f"✅ Data loaders ready:")
+    print(f"   Train: {len(train_dataset)} synthetic equations")
+    print(f"   Val:   {len(val_dataset)} synthetic equations")
+    print(f"   Test:  {len(test_loader.dataset)} AIF equations (separate)")
 
     # ── 3. Model ─────────────────────────────────────────────────────────────
     model = LLMJEPAModule(

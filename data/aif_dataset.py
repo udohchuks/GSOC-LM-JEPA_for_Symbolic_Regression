@@ -343,63 +343,63 @@ class AIFDataset(Dataset):
         return len(self.equations)
 
     def __getitem__(self, idx: int) -> Dict:
-        eq     = self.equations[idx]
+        eq = self.equations[idx]
         n_vars = eq.n_vars
-        N      = eq.X_bits.shape[0]   # total available rows
+        N  = eq.X_bits.shape[0]   # total available rows
 
-        # ── Subsample rows ────────────────────────────────────────────────
-        # ── Handle variable row counts (Subsample or Pad) ──────────────────
+        # ── Step 1: Subsample/Pad Rows ────────────────────────────────
         if N > self.n_rows:
             # Subsample
-            row_idx  = np.random.choice(N, self.n_rows, replace=False)
-            X_bits   = eq.X_bits[row_idx]
+            row_idx = np.random.choice(N, self.n_rows, replace=False)
+            X_bits  = eq.X_bits[row_idx]
         elif N < self.n_rows:
             # Pad rows with zeros to match self.n_rows
             pad_rows = self.n_rows - N
-            pad_shape = (pad_rows,) + eq.X_bits.shape[1:]
+            pad_shape = (pad_rows, eq.X_bits.shape[1], eq.X_bits.shape[2])
             padding  = np.zeros(pad_shape, dtype=eq.X_bits.dtype)
             X_bits   = np.concatenate([eq.X_bits, padding], axis=0)
         else:
             X_bits   = eq.X_bits
-        
-        # ── Bit Tensor [n_rows, n_vars, 16] ───────────────────────────────
-        # X_bits is now stored in expanded float16 format in the cache.
-        # No more unpackbits overhead here.
-        
-        # ── Pad variable dimension to max_n_vars ──────────────────────────
-        # Why pad? Tensors in a batch must have identical shapes.
-        # Padding with zeros is safe: the var_mask tells the model
-        # which positions are real vs padding.
-        # X_bits currently has n_vars + 1 columns (inputs + y)
-        pad_vars = self.max_n_vars - (n_vars + 1)
-        y_unit = np.full((1, 5), 4, dtype=np.int64)
 
-        if pad_vars > 0:
-            # Pad X_bits with zeros along variable axis
-            pad_x = np.zeros(
-                (X_bits.shape[0], pad_vars, 16), dtype=np.float16
-            )
+        # ── Step 2: Handle Variable Columns (X and Y) ──────────────────
+        # eq.X_bits already contains both X and Y columns [rows, n_vars+1, 16]
+        current_vars = X_bits.shape[1]
+        desired_vars = self.max_n_vars
+        
+        if current_vars < desired_vars:
+            # Pad
+            pad_w  = desired_vars - current_vars
+            pad_x  = np.zeros((X_bits.shape[0], pad_w, 16), dtype=np.float16)
             X_bits = np.concatenate([X_bits, pad_x], axis=1)
-            # shape: [n_rows, max_n_vars, 16]
-
-            # Pad unit indices with 4 (= offset for exponent 0 = dimensionless)
-            pad_u = np.full((pad_vars, 5), 4, dtype=np.int64)
-            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit, pad_u], axis=0)
-            # shape: [max_n_vars, 5]
         else:
-            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit], axis=0)
+            # Truncate
+            X_bits = X_bits[:, :desired_vars, :]
+
+        # ── Step 3: Handle Units (Corresponding to columns) ───────────
+        # Target (Y) unit is always index 4 ([0,0,0,1,0] simplified)
+        y_unit = np.full((1, 5), 4, dtype=np.int64)
         
-        # ── Variable mask ─────────────────────────────────────────────────
-        # 1.0 for real variables, 0.0 for padding
-        # Used in the encoder to ignore padded variable slots
+        # Combine units for X (from metadata) and Y
+        x_units = eq.unit_matrix_idx # [n_vars, 5]
+        combined_units = np.concatenate([x_units, y_unit], axis=0)
+        
+        # Pad/Truncate units to reach desired_vars
+        current_u = combined_units.shape[0]
+        if current_u < desired_vars:
+            pad_u = np.full((desired_vars - current_u, 5), 4, dtype=np.int64)
+            unit_idx = np.concatenate([combined_units, pad_u], axis=0)
+        else:
+            unit_idx = combined_units[:desired_vars, :]
+
+        # ── Step 4: Masks ─────────────────────────────────────────────
         var_mask = np.zeros(self.max_n_vars, dtype=np.float32)
-        var_mask[:n_vars + 1] = 1.0
+        # Mask only the columns that physically existed (original X + Y)
+        valid_len = min(current_vars, self.max_n_vars)
+        var_mask[:valid_len] = 1.0
 
         return {
             # Encoder inputs
-            'X_bits':           torch.from_numpy(X_bits), # [n_rows, max_n_vars, 16] float16
-            # [n_rows, max_n_vars, 16]
-
+            'X_bits':           torch.from_numpy(X_bits),
             'unit_idx':         torch.from_numpy(unit_idx).long(),
             # [max_n_vars, 5]
 
