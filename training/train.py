@@ -112,34 +112,75 @@ def main():
     # OPTION 4: Separate DataLoaders for Synthetic (train) and AIF (val/test)
     # Synthetic data has Y for MSE loss, AIF does not
     
-    # Training: Synthetic data only
-    full_dataset = LazySyntheticDataset(
-        cache_dir=cfg_data.get('synthetic_cache', 'cache/synthetic_1M'),
-        max_n_vars=MAX_N_VARS,
-        n_rows=N_ROWS
-    )
-
-    # Contiguous split to preserve chunk boundaries
-    val_size     = max(1, int(0.1 * len(full_dataset)))
-    train_size   = len(full_dataset) - val_size
-
-    train_dataset = Subset(full_dataset, range(0, train_size))
-    val_dataset   = Subset(full_dataset, range(train_size, len(full_dataset)))
-
-    # Use custom sampler to prevent Drive thrashing
-    train_sampler = ContiguousChunkSampler(0, train_size, full_dataset)
-
+    # Check if using In-Memory dataset (GPU Redline mode)
+    use_inmemory = cfg_data.get('max_cache_size', 16) == -1 or BATCH_SIZE >= 2048
+    
+    if use_inmemory:
+        print(f"\n{'='*70}")
+        print(f"🚀 GPU REDLINE MODE: Using In-Memory Dataset")
+        print(f"{'='*70}")
+        from data.inmemory_dataset import InMemorySyntheticDataset
+        
+        # Load entire dataset into RAM
+        full_dataset = InMemorySyntheticDataset(
+            cache_dir=cfg_data.get('synthetic_cache', 'cache/synthetic_1M'),
+            max_n_vars=MAX_N_VARS,
+            n_rows=N_ROWS,
+        )
+        
+        # Simple split (no need for ContiguousChunkSampler with RAM dataset)
+        val_size     = max(1, int(0.1 * len(full_dataset)))
+        train_size   = len(full_dataset) - val_size
+        
+        train_dataset = Subset(full_dataset, range(0, train_size))
+        val_dataset   = Subset(full_dataset, range(train_size, len(full_dataset)))
+        
+        # High-performance DataLoader settings
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=BATCH_SIZE,
+            shuffle=True,
+            collate_fn=collate_fn,
+            num_workers=NUM_WORKERS,
+            pin_memory=True,
+            persistent_workers=True,
+            prefetch_factor=2,
+        )
+        
+        print(f"✅ In-Memory dataset loaded: {len(full_dataset):,} equations")
+    else:
+        # Traditional Lazy loading from Drive
+        from data.synthetic_dataset import LazySyntheticDataset, ContiguousChunkSampler
+        
+        full_dataset = LazySyntheticDataset(
+            cache_dir=cfg_data.get('synthetic_cache', 'cache/synthetic_1M'),
+            max_n_vars=MAX_N_VARS,
+            n_rows=N_ROWS
+        )
+        
+        # Contiguous split to preserve chunk boundaries
+        val_size     = max(1, int(0.1 * len(full_dataset)))
+        train_size   = len(full_dataset) - val_size
+        
+        train_dataset = Subset(full_dataset, range(0, train_size))
+        val_dataset   = Subset(full_dataset, range(train_size, len(full_dataset)))
+        
+        # Use custom sampler to prevent Drive thrashing
+        train_sampler = ContiguousChunkSampler(0, train_size, full_dataset)
+        
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=BATCH_SIZE,
+            sampler=train_sampler,
+            collate_fn=collate_fn,
+            num_workers=NUM_WORKERS,
+            pin_memory=True,
+            persistent_workers=(NUM_WORKERS > 0)
+        )
+        print(f"✅ Lazy dataset loaded: {len(full_dataset):,} equations")
+    
     from data.aif_dataset import collate_fn
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        sampler=train_sampler,
-        collate_fn=collate_fn,
-        num_workers=NUM_WORKERS,
-        pin_memory=True,
-        persistent_workers=(NUM_WORKERS > 0)
-    )
+    
     # Validation: Also synthetic (same distribution as training)
     val_loader = DataLoader(
         val_dataset,
@@ -160,9 +201,10 @@ def main():
         num_workers=NUM_WORKERS,
     )
     
-    print(f"✅ Data loaders ready:")
-    print(f"   Train: {len(train_dataset)} synthetic equations")
-    print(f"   Val:   {len(val_dataset)} synthetic equations")
+    print(f"\n✅ Data loaders ready:")
+    print(f"   Train: {len(train_dataset):,} synthetic equations")
+    print(f"   Val:   {len(val_dataset):,} synthetic equations")
+    print(f"   Test:  AIF evaluation set (separate)")
     print(f"   Test:  {len(test_loader.dataset)} AIF equations (separate)")
 
     # ── 3. Model ─────────────────────────────────────────────────────────────

@@ -1,0 +1,112 @@
+# GPU Redline Configuration - Maximum Training Speed
+# Uses In-Memory dataset + large batches + minimal validation overhead
+# 
+# Features:
+#   - Full-RAM loading (~12-15GB for 1M equations)
+#   - Batch size: 2048 (keeps GPU at 100%)
+#   - Validation: Once per epoch only
+#   - Checkpointing: Once per epoch only
+#   - 16 CPU workers (stays ahead of GPU)
+#
+# Requirements:
+#   - 16GB+ system RAM
+#   - GPU with 12GB+ VRAM (for batch_size 2048)
+#   - Generated data in cache/
+
+data:
+  csv_path:    "data/FeynmanEquations.csv"
+  data_dir:    "/content/drive/MyDrive/SymbolicRegression/Feynman_with_units/"
+  cache_dir:   "/content/drive/MyDrive/SymbolicRegression/cache/"
+  
+  # Use In-Memory dataset (loads ALL data into RAM at startup)
+  synthetic_cache: "/content/drive/MyDrive/SymbolicRegression/cache/synthetic_small"
+  n_synthetic:     250000
+  n_data_points:   500
+  num_workers:     16
+  
+  var_weights:
+    1: 0.05
+    2: 0.10
+    3: 0.20
+    4: 0.25
+    5: 0.22
+    6: 0.11
+    7: 0.05
+    8: 0.015
+    9: 0.005
+
+  # GPU REDLINE DATALOADER SETTINGS
+  n_rows:          200        # Data points per equation
+  max_n_vars:      10         # 9 X vars + 1 Y
+  batch_size:      2048       # MAXIMUM - keeps GPU at 100%
+  num_workers:     16         # CPU stays ahead of GPU
+  chunk_size:      100
+  max_cache_size:  -1         # -1 = load ALL into RAM (no limit)
+
+model:
+  # ~5M parameter model (optimal for 250k+ equations)
+  d_model:      256
+  n_heads:      8
+  n_isab:       2
+  n_col_attn:   2
+  n_enc_layers: 6
+  n_dec_layers: 6
+  m_inducing:   32
+  max_n_vars:   10
+  dropout:      0.1
+
+  predictor:
+    pred_n_heads:          4
+    pred_bottleneck_ratio: 0.5     # 256 * 0.5 = 128
+    pred_dropout:          0.15
+
+loss:
+  lambda_jepa:   1.0
+  lambda_sigreg: 0.1
+  lambda_lm:     1.0
+  lambda_units:  1.0
+  alpha_lm:      2.0
+  num_slices:    256
+  num_points:    9
+
+training:
+  lr:            4e-4
+  weight_decay:  1e-2
+  max_epochs:    3          # Fewer epochs needed with large batches
+  warmup_steps:  2000       # Longer warmup for large batches
+  use_synthetic: true
+  gradient_clip: 1.0
+  
+  # MINIMAL OVERHEAD - validate/save ONCE per epoch
+  val_check_interval: 1.0   # 1.0 = once per epoch (not steps!)
+  limit_val_batches: 0.1    # Only 10% of validation set
+
+logging:
+  log_every_n_steps: 100    # Less frequent logging
+  logger:  "tensorboard"
+  run_name: "gpu_redline"
+
+checkpoint:
+  dirpath: "checkpoints_redline/"
+  save_top_k: 3
+  monitor: "val/total"
+  mode: "min"
+  save_last: true
+  save_every_n_epochs: 1    # Once per epoch (NOT every N steps)
+  filename: "redline-{epoch:02d}-{val/total:.4f}"
+
+inference:
+  pool_size: 100
+  max_len: 45
+  temperature: 0.2
+  max_iter: 100
+  n_workers: 8
+  top_k: 5
+  grammar_penalty: 1e9
+  n_restarts: 5
+
+hardware:
+  accelerator:  "gpu"
+  devices:      1
+  strategy:     "auto"
+  precision:    "bf16-mixed"
