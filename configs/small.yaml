@@ -32,8 +32,8 @@ data:
   # LAZY MODE: Keep max_cache_size=128 and batch_size=256 for lower RAM usage
   n_rows:      200                      # Very small for fast training
   max_n_vars:  10                       # 9 input variables + 1 output y column
-  batch_size:  2048                     # GPU REDLINE: 2048 (keeps GPU at 100%)
-  num_workers: 16                       # Max out CPU throughput (was 4)
+  batch_size:  256                     # GPU REDLINE: 2048 (keeps GPU at 100%)
+  num_workers: 8                       # Max out CPU throughput (was 4)
   chunk_size:  100                      #
   max_cache_size: -1                    # GPU REDLINE: -1 = load ALL into RAM (12-15GB)
                                         # LAZY MODE: 128 = cache 128 chunks (~2GB RAM)
@@ -76,7 +76,7 @@ loss:
 training:
   lr:            4e-4                   # Slightly lowered for larger d_model
   weight_decay:  1e-2
-  max_epochs:    3                      # Dropped from 20 to 3 since corpus size is 10x larger
+  max_epochs:    2                      # Dropped from 20 to 3 since corpus size is 10x larger
   warmup_steps:  2000                   # Longer warmup for bigger batches
   
   # GPU REDLINE MODE settings

@@ -72,43 +72,30 @@ class InMemorySyntheticDataset(Dataset):
         # Load ALL chunks into a single list
         self.equations: List[SyntheticEquation] = []
         
-        # Use parallel loading for large datasets (>1000 chunks)
-        if len(chunk_files) > 1000:
-            print(f"   Using parallel loading for {len(chunk_files):,} chunks...")
-            import concurrent.futures
-            
-            def load_chunk(chunk_file):
-                try:
-                    chunk_data = torch.load(chunk_file, map_location='cpu', weights_only=False)
-                    return chunk_data if isinstance(chunk_data, list) else [chunk_data]
-                except Exception as e:
-                    print(f"   ⚠️  Warning: Failed to load {chunk_file.name}: {e}")
-                    return []
-            
-            # Load in parallel with progress tracking
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                for i, chunk_data in enumerate(executor.map(load_chunk, chunk_files)):
+        # Optimized sequential loading with better progress tracking
+        # (Parallel torch.load causes issues with CUDA/GIL)
+        print(f"   Estimated RAM usage: ~{len(chunk_files) * 0.1:.1f}GB")
+        print(f"   This will take ~{len(chunk_files) / 200:.0f}-{len(chunk_files) / 100:.0f} seconds...")
+        
+        for i, chunk_file in enumerate(chunk_files):
+            try:
+                chunk_data = torch.load(chunk_file, map_location='cpu', weights_only=False)
+                if isinstance(chunk_data, list):
                     self.equations.extend(chunk_data)
-                    if (i + 1) % 500 == 0:
-                        elapsed = time.perf_counter() - t0
-                        rate = (i + 1) / elapsed
-                        eta = (len(chunk_files) - i - 1) / rate
-                        print(f"   Loaded {i+1}/{len(chunk_files)} chunks ({len(self.equations):,} equations) - ETA: {eta:.0f}s")
-        else:
-            # Sequential loading for smaller datasets
-            for i, chunk_file in enumerate(chunk_files):
-                try:
-                    chunk_data = torch.load(chunk_file, map_location='cpu', weights_only=False)
-                    if isinstance(chunk_data, list):
-                        self.equations.extend(chunk_data)
-                    else:
-                        self.equations.append(chunk_data)
-                    
-                    if (i + 1) % 10 == 0:
-                        print(f"   Loaded {i+1}/{len(chunk_files)} chunks ({len(self.equations):,} equations)")
+                else:
+                    self.equations.append(chunk_data)
+                
+                # Progress updates
+                if (i + 1) % 500 == 0:
+                    elapsed = time.perf_counter() - t0
+                    rate = (i + 1) / elapsed
+                    eta = (len(chunk_files) - i - 1) / rate
+                    print(f"   Loaded {i+1:,}/{len(chunk_files):,} chunks ({len(self.equations):,} equations) - ETA: {eta:.0f}s")
+                elif (i + 1) % 100 == 0:
+                    print(f"   Loaded {i+1:,}/{len(chunk_files):,} chunks...")
                         
-                except Exception as e:
-                    print(f"   ⚠️  Warning: Failed to load {chunk_file.name}: {e}")
+            except Exception as e:
+                print(f"   ⚠️  Warning: Failed to load {chunk_file.name}: {e}")
         
         elapsed = time.perf_counter() - t0
         
