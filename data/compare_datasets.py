@@ -159,23 +159,23 @@ def generate_synthetic_sample(n_equations: int, n_data_points: int,
     successful = 0
     
     attempts_per_eq = 50  # Max attempts per equation
-    
+
     for i in range(n_equations):
-        eq = None
+        eqs = None
         for _ in range(attempts_per_eq):
             result = generate_one_equation(builder, n_data_points=n_data_points, max_attempts=1)
             if result is not None:
-                eq = result
+                eqs = result
                 break
-        
-        if eq is not None:
-            equations.append(eq)
-            successful += 1
-        
+
+        if eqs is not None:
+            equations.extend(eqs)  # Add all commutative variants
+            successful += len(eqs)
+
         if (i + 1) % 20 == 0:
-            print(f"    Generated {i+1}/{n_equations} (success: {successful})")
-    
-    print(f"  Synthetic generation complete: {successful}/{n_equations} successful")
+            print(f"    Generated {successful}/{n_equations} equations (success: {len([e for e in equations])})")
+
+    print(f"  Synthetic generation complete: {len(equations)}/{n_equations} equations (includes commutative aug)")
     return equations
 
 

@@ -64,7 +64,8 @@ class SIGRegLoss(nn.Module):
     def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            embeddings: [B, d_model] or [2*B, d_model] for concatenated z_context/z_target
+            embeddings: [B, d_model] from context or target encoder.
+                        (Note: applied independently per LeJEPA design).
         Returns:
             scalar SIGReg loss
         """
@@ -155,7 +156,7 @@ class ValidityWeightedCE(nn.Module):
     def __init__(
         self,
         invalid_weight: float = 2.0,
-        ignore_index: int = PAD_IDX,
+        ignore_index: int = -100,
     ):
         super().__init__()
         self.invalid_weight = invalid_weight

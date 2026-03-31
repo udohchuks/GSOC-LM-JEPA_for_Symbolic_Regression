@@ -131,7 +131,8 @@ class LLMJEPAModule(pl.LightningModule):
         unit_preds = self.model.unit_head(out['h_states'])
 
         # ── 4. Compute Losses ──────────────────────────────────────────────
-        decoder_target = token_ids[:, 1:]
+        decoder_target = token_ids[:, 1:].clone()
+        decoder_target[decoder_target == PAD_IDX] = -100
         unit_targets_shifted = unit_targets[:, 1:, :]
 
         losses = self.loss_fn(

@@ -40,23 +40,23 @@ data:
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
-  # ~2M parameter architecture (fast on Colab T4, but actually capable of learning)
-  # d_model must be divisible by n_heads: 128/4=32
-  # bottleneck_dim must be divisible by pred_n_heads: 64/2=32
-  d_model:      128                     # Increased from 80 for much better expression capacity
-  n_heads:      4                       # 4 heads → head_dim=32
+  # ~5M+ parameter architecture (Ideal for 250k+ data points)
+  # d_model must be divisible by n_heads: 256/8=32
+  # bottleneck_dim must be divisible by pred_n_heads: 128/4=32
+  d_model:      256                     # Scaled to 256 for optimal expression capacity
+  n_heads:      8                       # 8 heads → head_dim=32
   n_isab:       2                       # ISA blocks in MixEncoder
   n_col_attn:   2                       # Column attention layers
-  n_enc_layers: 4                       # Encoder transformer layers
-  n_dec_layers: 4                       # Decoder transformer layers
+  n_enc_layers: 6                       # Encoder transformer layers
+  n_dec_layers: 6                       # Decoder transformer layers
   m_inducing:   32                      # Inducing points for set attention
   max_n_vars:   10                      # Max variable padding (9 inputs + 1 output)
   dropout:      0.15                    # Dropout for regularization
 
   # Predictor (JEPA bottleneck)
   predictor:
-    pred_n_heads:          2            # Attention heads in predictor
-    pred_bottleneck_ratio: 0.50         # 128 * 0.5 = 64
+    pred_n_heads:          4            # Increased to 4 matching bottleneck of 128 (128/4=32)
+    pred_bottleneck_ratio: 0.25         # 256 * 0.25 = 64
     pred_dropout:          0.20         # Dropout for regularization
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
@@ -77,14 +77,14 @@ training:
   warmup_steps:  1000                   # Longer warmup for bigger corpus
   use_synthetic: true
   gradient_clip: 1.0
-  val_check_interval: 200               # Validate every 200 steps (matches new epoch size)
+  val_check_interval: 500              # Validate every 1000 steps to reduce overhead (matches 250k scale)
   limit_val_batches: 0.1                # 10% of validation - faster validation
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging:
   log_every_n_steps: 50                 # Log every 50 steps (was 20) - less overhead
   logger:  "tensorboard"
-  run_name: "small_25k"
+  run_name: "small_250k"
 
 # ── Checkpointing ─────────────────────────────────────────────────────────────
 checkpoint:

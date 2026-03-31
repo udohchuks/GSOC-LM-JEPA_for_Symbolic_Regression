@@ -1011,6 +1011,46 @@ def apply_negation_augmentation(expr, probability=0.30):
     target = random.choice(sub_exprs)
     return expr.subs(target, -target)
 
+def get_subtree_extent(rpn, end_idx):
+    """
+    Given the index of the end of a subtree in an RPN sequence (i.e. the root),
+    find the start index of that subtree.
+    """
+    from data.tokenizer import ARITY
+    stack = 1
+    for i in range(end_idx, -1, -1):
+        arity = ARITY.get(rpn[i], 0)
+        stack += arity - 1
+        if stack == 0:
+            return i
+    return 0
+
+def swap_rpn_operands(rpn_tokens, op_idx):
+    """
+    Swaps the two subtrees immediately preceding the binary operator at op_idx.
+    """
+    right_end = op_idx - 1
+    right_start = get_subtree_extent(rpn_tokens, right_end)
+    left_end = right_start - 1
+    left_start = get_subtree_extent(rpn_tokens, left_end)
+    
+    # Reconstruct: left part swapped with right part
+    return rpn_tokens[:left_start] + rpn_tokens[right_start:right_end+1] + rpn_tokens[left_start:left_end+1] + rpn_tokens[op_idx:]
+
+def augment_commutative(rpn_tokens):
+    """
+    Add the swapped version to training data.
+    Model sees both — no canonicalization needed.
+    No risk of structural corruption.
+    """
+    augmented = [rpn_tokens]
+    for i, tok in enumerate(rpn_tokens):
+        if tok in ('+', '*'):
+            swapped = swap_rpn_operands(rpn_tokens, i)
+            if swapped and swapped != rpn_tokens:
+                augmented.append(swapped)
+    return augmented
+
 
 # ── Synthetic equation ─────────────────────────────────────────────────────────
 
@@ -1036,12 +1076,15 @@ def generate_one_equation(
     builder:        PhysicsTreeBuilder,
     n_data_points:  int = 1000,
     max_attempts:   int = 50,
-) -> Optional[SyntheticEquation]:
+) -> Optional[List[SyntheticEquation]]:
     """
-    Generate one valid synthetic physics equation.
+    Generate one valid synthetic physics equation with commutative augmentation.
 
     Attempts up to max_attempts times.
     Expected success rate ~10% due to unit consistency filtering.
+    
+    Returns MULTIPLE equations when commutative operators (+, *) are present,
+    as both original and swapped versions are generated for training diversity.
 
     Args:
         builder:       PhysicsTreeBuilder instance
@@ -1049,7 +1092,8 @@ def generate_one_equation(
         max_attempts:  retry budget per equation
 
     Returns:
-        SyntheticEquation or None if all attempts fail.
+        List of SyntheticEquation objects (1-2 per attempt), or None if all attempts fail.
+        When commutative augmentation applies, returns [original, swapped] pair.
     """
     for _ in range(max_attempts):
 
@@ -1157,34 +1201,46 @@ def generate_one_equation(
         unit_matrix     = get_unit_matrix(var_names)
         unit_matrix_idx = unit_to_class_indices(unit_matrix)
 
-        # ── Token IDs ─────────────────────────────────────────────────────
-        token_ids = np.array(
-            encode_formula(rpn_tokens, add_bos=True,
-                           add_eos=True, pad_to=MAX_SEQ_LEN),
-            dtype=np.int64
-        )
-
-        # ── Unit targets ──────────────────────────────────────────────────
-        raw_targets = compute_unit_targets(rpn_tokens, var_names)
-        padded = [[0]*5] + raw_targets + [[0]*5]
-        while len(padded) < MAX_SEQ_LEN:
-            padded.append([0]*5)
-        padded = padded[:MAX_SEQ_LEN]
-        unit_targets_idx = unit_targets_to_class_indices(padded)
-        
         from data.tokenizer import rpn_to_sympy
-        return SyntheticEquation(
-            var_names=var_names,
-            expr_str=str(rpn_to_sympy(rpn_tokens)),
-            rpn_tokens=rpn_tokens,
-            token_ids=token_ids,
-            X_bits=X_bits,
-            y_noisy=y_noisy,
-            unit_matrix_idx=unit_matrix_idx,
-            unit_targets_idx=unit_targets_idx,
-            n_vars=n_vars,
-            epsilon=epsilon,
-        )
+
+        # ── Commutative Augmentation ──────────────────────────────────────
+        augmented_rpns = augment_commutative(rpn_tokens)
+        equations_out = []
+
+        for rpn in augmented_rpns:
+            if len(rpn) > MAX_SEQ_LEN - 2:
+                continue
+
+            # ── Token IDs ─────────────────────────────────────────────────────
+            token_ids = np.array(
+                encode_formula(rpn, add_bos=True,
+                               add_eos=True, pad_to=MAX_SEQ_LEN),
+                dtype=np.int64
+            )
+
+            # ── Unit targets ──────────────────────────────────────────────────
+            raw_targets = compute_unit_targets(rpn, var_names)
+            padded = [[0]*5] + raw_targets + [[0]*5]
+            while len(padded) < MAX_SEQ_LEN:
+                padded.append([0]*5)
+            padded = padded[:MAX_SEQ_LEN]
+            unit_targets_idx = unit_targets_to_class_indices(padded)
+            
+            equations_out.append(SyntheticEquation(
+                var_names=var_names,
+                expr_str=str(rpn_to_sympy(rpn)),
+                rpn_tokens=rpn,
+                token_ids=token_ids,
+                X_bits=X_bits,
+                y_noisy=y_noisy,
+                unit_matrix_idx=unit_matrix_idx,
+                unit_targets_idx=unit_targets_idx,
+                n_vars=n_vars,
+                epsilon=epsilon,
+            ))
+
+        if equations_out:
+            return equations_out
 
     return None   # all attempts failed
 
@@ -1528,13 +1584,13 @@ def _generate_corpus(
             pbar = None
 
         try:
-            for eq in results:
+            for eqs in results:
                 n_attempted += 1
-                if eq is not None:
-                    equations.append(eq)
+                if eqs is not None:
+                    equations.extend(eqs)
                     if pbar:
-                        pbar.update(1)
-                    elif verbose and len(equations) % 100 == 0:
+                        pbar.update(len(eqs))
+                    elif verbose and (len(equations) % 100) < len(eqs):
                         prog = len(equations) + chunk_count * chunk_size
                         rate = prog / n_attempted * 100
                         print(f"  {prog}/{n_equations} | attempts: {n_attempted} | yield: {rate:.1f}%")
@@ -1750,16 +1806,18 @@ if __name__ == '__main__':
     # ── Test 3: Full equation generation ─────────────────────────────────
     n_success = 0
     for _ in range(20):
-        eq = generate_one_equation(builder, n_data_points=N_POINTS)
-        if eq is not None:
-            n_success += 1
-            print(eq.expr_str)
+        eqs = generate_one_equation(builder, n_data_points=N_POINTS)
+        if eqs is not None:
+            n_success += len(eqs)  # Count all augmented equations
+            for eq in eqs:
+                print(f"  {eq.expr_str}")
 
-    print(f'Equation generation: {n_success}/10 succeeded')
+    print(f'Equation generation: {n_success}/10 succeeded (includes commutative aug)')
     assert n_success > 0, "No equations generated — check unit propagation"
 
-    # Inspect last successful equation
-    if eq is not None:
+    # Inspect first equation from last batch
+    if eqs is not None:
+        eq = eqs[0]
         print(f'  Formula: {eq.expr_str[:60]}')
         print(f'  n_vars:  {eq.n_vars}')
         print(f'  RPN:     {eq.rpn_tokens}')
@@ -1770,9 +1828,14 @@ if __name__ == '__main__':
         assert eq.unit_targets_idx.shape == (MAX_SEQ_LEN, 5)
 
     # ── Test 4: Dataset __getitem__ ───────────────────────────────────────
-    equations = [eq for _ in range(20)
-                 for eq in [generate_one_equation(builder, N_POINTS)]
-                 if eq is not None][:5]
+    equations = []
+    for _ in range(20):
+        eqs = generate_one_equation(builder, N_POINTS)
+        if eqs is not None:
+            equations.extend(eqs)
+        if len(equations) >= 5:
+            break
+    equations = equations[:5]
 
     if equations:
         n_test_rows = N_ROWS
