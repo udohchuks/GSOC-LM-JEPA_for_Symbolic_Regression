@@ -12,7 +12,7 @@ data:
   synthetic_cache: "/content/drive/MyDrive/SymbolicRegression/cache/synthetic_small"
   n_synthetic:     250000               # 250k equations (prevents overfitting to just 25k)
   n_data_points:   500                  # Fewer data points per equation
-  num_workers:     4                    # Generation workers
+  num_workers:     16                   # Increased workers for generation/fetch
   
   # Variable distribution weights for synthetic data generation
   # Adjusted to match AI Feynman: ~16% at 1-2 vars, ~36% at 3 vars, ~27% at 4 vars
@@ -30,10 +30,10 @@ data:
   # DataLoader
   n_rows:      200                      # Very small for fast training
   max_n_vars:  10                       # 9 input variables + 1 output y column
-  batch_size:  128                      # Larger batches for better GPU utilization (was 64)
-  num_workers: 4                        # More workers for faster data loading (was 2)
-  chunk_size:  100                      # Smaller chunks (more frequent saves, easier debugging)
-  max_cache_size: 16                    # Larger cache for more chunks
+  batch_size:  256                      # Larger batches for better GPU utilization (was 64)
+  num_workers: 16                       # Max out CPU throughput (was 4)
+  chunk_size:  100                      #
+  max_cache_size: 128                   # Large RAM cache to stop Drive re-downloads (was 16)
   
   # AIF cache directory (MUST be in Drive)
   cache_dir:   "/content/drive/MyDrive/SymbolicRegression/cache/"
