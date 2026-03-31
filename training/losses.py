@@ -224,41 +224,44 @@ class ValidityWeightedCE(nn.Module):
             reduction='none'
         ).reshape(B, T)  # [B, T]
         
-        # 2. Get depths (Fast Vectorized Way)
+        # 2. Get stack depths
         depths = self._get_batch_depths(input_ids)  # [B, T]
         
-        # 3. Apply Validity Weights (Fully Vectorized)
-        arities = self.full_arity_map[targets]  # [B, T]
-        is_eos = (targets == self.eos_idx)      # [B, T] mask
-        is_pad = (targets == self.ignore_index) # [B, T] mask
+        # 3. Apply Validity Weights on LOGITS (not targets!)
+        # We want to penalize the model for putting probability mass on invalid tokens.
+        depths_exp = depths.unsqueeze(-1)  # [B, T, 1]
+        t_indices = torch.arange(T, device=device).view(1, T, 1)  # [1, T, 1]
         
-        # Sequence position for max_len check
-        t_indices = torch.arange(T, device=device).unsqueeze(0).expand(B, T) # [B, T]
+        arities = self.full_arity_map.view(1, 1, V)  # [1, 1, V]
+        is_eos = (torch.arange(V, device=device) == self.eos_idx).view(1, 1, V)
         
-        # Parallel Validity Check:
-        # Instead of 'if targets[b,t] == EOS...', we evaluate all conditions
-        # across the entire [B, T] grid in one GPU kernel call.
+        # COMPLEXITY ENFORCEMENT: 
+        # EOS is only valid if depth is exactly 1 AND sequence has at least 5 tokens
+        # This explicitly penalizes the lazy "short equation" shortcut
+        valid_eos = is_eos & (depths_exp == 1) & (t_indices >= 5)
         
-        # - EOS is valid ONLY if stack depth is exactly 1 (complete expression)
-        valid_eos = is_eos & (depths == 1)
-        
-        # - Non-EOS tokens are valid IF:
-        #   a) We haven't hit the hard max length limit
-        #   b) The current stack depth can satisfy the operator's arity
+        # Non-EOS grammar validity based on stack depth constraints
         valid_non_eos = (~is_eos) & (t_indices < self.max_len - 1) & (
-            (arities == 0) |                   # Leaf: always valid if not full
-            ((arities == 1) & (depths >= 1)) | # Unary: needs 1 operand
-            ((arities == 2) & (depths >= 2))   # Binary: needs 2 operands
+            (arities == 0) |                       # Leaf: always valid
+            ((arities == 1) & (depths_exp >= 1)) | # Unary: needs 1 operand
+            ((arities == 2) & (depths_exp >= 2))   # Binary: needs 2 operands
         )
         
-        is_valid = valid_eos | valid_non_eos  # [B, T] boolean mask
+        is_valid_logit = valid_eos | valid_non_eos  # [B, T, V] boolean mask
+        
+        # Never penalize the ground truth target itself (in case of genuinely short targets)
+        # Avoid out-of-bounds on pad index using clamp
+        target_one_hot = F.one_hot(targets.clamp(min=0), num_classes=V).bool()
+        is_valid_logit = is_valid_logit | target_one_hot
         
         # 4. Final Loss Calculation
-        weights = torch.ones_like(ce_loss)
-        # Penalize tokens that violate RPN grammar
-        weights[~is_valid & ~is_pad] = self.invalid_weight
+        # Add a penalty proportional to the probability mass assigned to INVALID grammar tokens
+        probs = F.softmax(logits, dim=-1)
+        invalid_prob_mass = (probs * (~is_valid_logit).float()).sum(dim=-1)  # [B, T]
         
-        weighted_loss = ce_loss * weights
+        # Total loss = CE + penalty * invalid_mass
+        weighted_loss = ce_loss + (self.invalid_weight * invalid_prob_mass)
+        
         mask = (targets != self.ignore_index).float()
         return (weighted_loss * mask).sum() / mask.sum().clamp(min=1.0)
 

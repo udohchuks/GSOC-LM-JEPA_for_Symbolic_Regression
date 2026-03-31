@@ -1149,7 +1149,8 @@ def generate_one_equation(
         y_noisy = add_gaussian_noise(y, epsilon=epsilon)
 
         # ── IEEE-754 encode (compact uint16) ──────────────────────────────
-        X_bits = to_ieee754_16bit(X)   # [N, n_vars]
+        X_combined = np.column_stack([X, y_noisy])
+        X_bits = to_ieee754_16bit(X_combined)   # [N, n_vars + 1]
 
         # ── Unit matrix ───────────────────────────────────────────────────
         var_names       = [var_pool[i][0] for i in range(n_vars)]
@@ -1238,8 +1239,11 @@ class SyntheticDataset(Dataset):
         # X_bits is now stored in expanded float16 format.
         # No more unpackbits overhead here.
         
-        # Pad variable dimension to max_n_vars
-        pad_vars = self.max_n_vars - n_vars
+        # ── Pad variable dimension to max_n_vars ──────────────────────────
+        # X_bits currently has n_vars + 1 columns (inputs + y)
+        pad_vars = self.max_n_vars - (n_vars + 1)
+        y_unit = np.full((1, 5), 4, dtype=np.int64)
+        
         if pad_vars > 0:
             pad_x    = np.zeros(
                 (X_bits.shape[0], pad_vars, 16), dtype=np.float16
@@ -1247,13 +1251,13 @@ class SyntheticDataset(Dataset):
             X_bits   = np.concatenate([X_bits, pad_x], axis=1)
             pad_u    = np.full((pad_vars, 5), 4, dtype=np.int64)
             unit_idx = np.concatenate(
-                [eq.unit_matrix_idx, pad_u], axis=0
+                [eq.unit_matrix_idx, y_unit, pad_u], axis=0
             )
         else:
-            unit_idx = eq.unit_matrix_idx
+            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit], axis=0)
 
         var_mask = np.zeros(self.max_n_vars, dtype=np.float32)
-        var_mask[:n_vars] = 1.0
+        var_mask[:n_vars + 1] = 1.0  # +1 for y
 
         return {
             'X_bits':           torch.from_numpy(X_bits), # [n_rows, max_n_vars, 16] float16
@@ -1477,8 +1481,10 @@ def _generate_corpus(
         if existing_parts:
             # Approximate current count (assuming each part is chunk_size)
             # This is fast and avoiding loading all files.
+            import re
             current_count = len(existing_parts) * chunk_size
-            chunk_count = max([int(p.stem.split('_')[1]) for p in existing_parts]) + 1
+            # Extract numeric part using regex to handle filenames like 'part_734 (1).pt'
+            chunk_count = max([int(re.search(r'\d+', p.stem.split('_')[1]).group()) for p in existing_parts]) + 1
 
             # Adjust n_equations to be the *remaining* amount needed
             needed = max(0, n_equations_target - current_count)

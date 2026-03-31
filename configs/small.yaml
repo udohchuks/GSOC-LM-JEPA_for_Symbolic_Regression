@@ -8,9 +8,9 @@ data:
   data_dir:    "/content/drive/MyDrive/SymbolicRegression/Feynman_with_units/"
   cache_dir:   "/content/drive/MyDrive/SymbolicRegression/cache/"
   
-  # Synthetic data (25k+ equations)
+  # Synthetic data (Scale up to 250k for generalization!)
   synthetic_cache: "/content/drive/MyDrive/SymbolicRegression/cache/synthetic_small"
-  n_synthetic:     25000                # 25k equations (can go up to 50k)
+  n_synthetic:     250000               # 250k equations (prevents overfitting to just 25k)
   n_data_points:   500                  # Fewer data points per equation
   num_workers:     4                    # Generation workers
   
@@ -29,7 +29,7 @@ data:
 
   # DataLoader
   n_rows:      200                      # Very small for fast training
-  max_n_vars:  9                        # Reduced padding (vs 9)
+  max_n_vars:  10                       # 9 input variables + 1 output y column
   batch_size:  128                      # Larger batches for better GPU utilization (was 64)
   num_workers: 4                        # More workers for faster data loading (was 2)
   chunk_size:  100                      # Smaller chunks (more frequent saves, easier debugging)
@@ -40,46 +40,45 @@ data:
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 model:
-  # ~1M parameter architecture (991K params = 29% of base)
-  # d_model must be divisible by n_heads: 80/4=20
-  # bottleneck_dim must be divisible by pred_n_heads: 30/2=15
-  d_model:      80                      # Optimized for ~1M total params
-  n_heads:      4                       # 4 heads → head_dim=20
+  # ~2M parameter architecture (fast on Colab T4, but actually capable of learning)
+  # d_model must be divisible by n_heads: 128/4=32
+  # bottleneck_dim must be divisible by pred_n_heads: 64/2=32
+  d_model:      128                     # Increased from 80 for much better expression capacity
+  n_heads:      4                       # 4 heads → head_dim=32
   n_isab:       2                       # ISA blocks in MixEncoder
   n_col_attn:   2                       # Column attention layers
-  n_enc_layers: 3                       # Encoder transformer layers
+  n_enc_layers: 4                       # Encoder transformer layers
   n_dec_layers: 4                       # Decoder transformer layers
   m_inducing:   32                      # Inducing points for set attention
-  max_n_vars:   9                       # Max variable padding
+  max_n_vars:   10                      # Max variable padding (9 inputs + 1 output)
   dropout:      0.15                    # Dropout for regularization
 
   # Predictor (JEPA bottleneck)
-  # bottleneck_dim = 80 * 0.375 = 30 (divisible by pred_n_heads=2 → 15)
   predictor:
     pred_n_heads:          2            # Attention heads in predictor
-    pred_bottleneck_ratio: 0.375        # 80 * 0.375 = 30
-    pred_dropout:          0.25         # Dropout for regularization
+    pred_bottleneck_ratio: 0.50         # 128 * 0.5 = 64
+    pred_dropout:          0.20         # Dropout for regularization
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
 loss:
   lambda_jepa:   1.0
-  lambda_sigreg: 0.4                    # Increase SIGReg for small data
+  lambda_sigreg: 0.1                    # Increase SIGReg for small data
   lambda_lm:     1.0
   lambda_units:  1.0
   alpha_lm:      2.0
-  num_slices:    128                    # Fewer slices (faster)
+  num_slices:    256                    # Fewer slices (faster)
   num_points:    9                      # Fewer Epps-Pulley points
 
 # ── Training ──────────────────────────────────────────────────────────────────
 training:
-  lr:            5e-4                   # Higher LR for small model
+  lr:            4e-4                   # Slightly lowered for larger d_model
   weight_decay:  1e-2
-  max_epochs:    20                     # Increased from 15 for better convergence
-  warmup_steps:  500                    # Shorter warmup
+  max_epochs:    3                      # Dropped from 20 to 3 since corpus size is 10x larger
+  warmup_steps:  1000                   # Longer warmup for bigger corpus
   use_synthetic: true
   gradient_clip: 1.0
-  val_check_interval: 50                # Validate every 50 steps (must be < num_train_batches)
-  limit_val_batches: 0.2                # 20% of validation - faster validation
+  val_check_interval: 200               # Validate every 200 steps (matches new epoch size)
+  limit_val_batches: 0.1                # 10% of validation - faster validation
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging:
@@ -99,9 +98,9 @@ checkpoint:
 
 # ── Inference ─────────────────────────────────────────────────────────────────
 inference:
-  beam_size: 5
-  max_len: 64
-  temperature: 0.7
+  pool_size: 100              # Generate 100 expressions instead of default 50
+  max_len: 45
+  temperature: 0.6            # High diversity to search tree width
 
 # ── Hardware ──────────────────────────────────────────────────────────────────
 hardware:

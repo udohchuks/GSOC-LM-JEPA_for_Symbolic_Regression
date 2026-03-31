@@ -22,7 +22,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 import os
 from pathlib import Path
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset, Sampler
 
 from training.trainer import LLMJEPAModule
 from data.aif_dataset import build_aif_dataloader
@@ -31,9 +31,40 @@ from data.synthetic_dataset import build_synthetic_dataloader, LazySyntheticData
 torch.set_float32_matmul_precision('medium')
 
 
+class ContiguousChunkSampler(Sampler):
+    """Samples indices chunk-by-chunk to prevent massive Google Drive I/O thrashing."""
+    def __init__(self, subset_start, subset_end, dataset):
+        self.subset_start = subset_start
+        self.subset_end = subset_end
+        self.chunks = []
+        
+        # Guard against empty dataset
+        if not hasattr(dataset, 'file_offsets'):
+            self.chunks.append(list(range(subset_end - subset_start)))
+            return
+            
+        for offset, size in zip(dataset.file_offsets, dataset.file_sizes):
+            c_start = max(offset, subset_start)
+            c_end = min(offset + size, subset_end)
+            if c_start < c_end:
+                self.chunks.append(list(range(c_start - subset_start, c_end - subset_start)))
+                
+    def __iter__(self):
+        chunk_order = torch.randperm(len(self.chunks)).tolist()
+        for c in chunk_order:
+            items = self.chunks[c]
+            shuffled_inner = torch.randperm(len(items)).tolist()
+            for idx in shuffled_inner:
+                yield items[idx]
+                
+    def __len__(self):
+        return self.subset_end - self.subset_start
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train LLM-JEPA")
     parser.add_argument("--config", type=str, default="configs/base_config.yaml", help="Path to config file")
+    parser.add_argument("--fresh", action="store_true", help="Force training from scratch (ignore checkpoints)")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -86,22 +117,22 @@ def main():
         n_rows=N_ROWS
     )
 
-    # Split synthetic into 90% train / 10% val
+    # Contiguous split to preserve chunk boundaries
     val_size     = max(1, int(0.1 * len(full_dataset)))
     train_size   = len(full_dataset) - val_size
 
-    train_dataset, val_dataset = random_split(
-        full_dataset,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(42),  # reproducible split
-    )
+    train_dataset = Subset(full_dataset, range(0, train_size))
+    val_dataset   = Subset(full_dataset, range(train_size, len(full_dataset)))
+    
+    # Use custom sampler to prevent Drive thrashing
+    train_sampler = ContiguousChunkSampler(0, train_size, full_dataset)
 
     from data.aif_dataset import collate_fn
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
-        shuffle=True,
+        sampler=train_sampler,
         collate_fn=collate_fn,
         num_workers=NUM_WORKERS,
         pin_memory=True,
@@ -210,12 +241,15 @@ def main():
     # Auto-resume from last checkpoint if it exists
     ckpt_dir = cfg_ckpt.get('dirpath', 'checkpoints/')
     last_ckpt_path = Path(ckpt_dir) / "last.ckpt"
-    resume_path = str(last_ckpt_path) if last_ckpt_path.exists() else None
+    
+    resume_path = str(last_ckpt_path) if last_ckpt_path.exists() and not args.fresh else None
     
     if resume_path:
         print(f"Resuming training from: {resume_path}")
     else:
         print(f"Starting fresh training. Logs at: {logger.log_dir}")
+        if args.fresh:
+            print("(--fresh flag used: bypassing any existing checkpoints)")
         
     print("SIGReg mode: Both encoders trainable, NO EMA updates")
     trainer.fit(model, train_loader, val_loader, ckpt_path=resume_path)

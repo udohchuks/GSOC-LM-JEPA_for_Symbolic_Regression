@@ -17,7 +17,7 @@ data:
 
   # DataLoader
   n_rows:      200                      # rows subsampled per equation per step
-  max_n_vars:  9                        # variable padding size
+  max_n_vars:  10                        # variable padding size
   batch_size:  128
   num_workers: 4                        # Workers for DataLoader (Colab: 4, Cloud: 8+)
   chunk_size:  2000                     # Equations per chunk file (for incremental save)
@@ -32,7 +32,7 @@ model:
   n_enc_layers: 4                    # Increased to match MixEncoder capacity
   n_dec_layers: 5                    
   m_inducing:   32                   # Reduced from 32
-  max_n_vars:   9
+  max_n_vars:   10
   dropout:      0.1
 
   # ── Predictor (JEPA bottleneck) ───────────────────────────────────────────

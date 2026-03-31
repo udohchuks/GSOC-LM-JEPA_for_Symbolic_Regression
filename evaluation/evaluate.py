@@ -205,10 +205,14 @@ def _prepare_model_inputs(eq, model, device):
 
     model_dtype = next(model.parameters()).dtype
     X_t = torch.from_numpy(X_bits).unsqueeze(0).to(device=device, dtype=model_dtype)
-    unit_idx = torch.from_numpy(eq.unit_matrix_idx).long().unsqueeze(0).to(device)
+    
+    # Append y unit (dimensionless=4)
+    y_unit = np.full((1, 5), 4, dtype=np.int64)
+    unit_idx_np = np.concatenate([eq.unit_matrix_idx, y_unit], axis=0)
+    unit_idx = torch.from_numpy(unit_idx_np).long().unsqueeze(0).to(device)
 
     max_n = model.max_n_vars
-    pad = max_n - eq.n_vars
+    pad = max_n - (eq.n_vars + 1)
 
     if pad > 0:
         # Match input dtype
@@ -218,17 +222,18 @@ def _prepare_model_inputs(eq, model, device):
         unit_idx = torch.cat([unit_idx, pad_u], dim=1)
 
     var_mask = torch.zeros(1, max_n, device=device, dtype=model_dtype)
-    var_mask[:, :eq.n_vars] = 1.0
+    var_mask[:, :eq.n_vars + 1] = 1.0
 
     return X_t, unit_idx, var_mask
 
 
 def _reconstruct_X(eq) -> np.ndarray:
     """Reconstruct float X from bits."""
-    # eq.X_bits is [N, n_vars, 16] float16 (0.0/1.0)
+    # eq.X_bits is [N, n_vars + 1, 16] float16 (0.0/1.0)
     bits = eq.X_bits.astype(np.uint8)
-    u8 = np.packbits(bits, axis=-1) # [N, n_vars, 2]
-    return u8.view(np.float16).reshape(eq.X_bits.shape[0], eq.n_vars).astype(np.float32)
+    u8 = np.packbits(bits, axis=-1) # [N, n_vars + 1, 2]
+    reconstructed = u8.view(np.float16).reshape(eq.X_bits.shape[0], eq.n_vars + 1).astype(np.float32)
+    return reconstructed[:, :eq.n_vars]  # Drop y column and return only X
 
 
 # ── Aggregation & Printing ────────────────────────────────────────────────────

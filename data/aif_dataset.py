@@ -251,9 +251,9 @@ def preprocess_equation(
     y = data[:,  meta.n_vars].astype(np.float32)  # [N]
 
     # ── Step 2: IEEE-754 encode ───────────────────────────────────────────
-    # Shape: [N, n_vars, 16]
-    # Pre-computed here so __getitem__ only needs to index, not convert
-    X_bits = to_ieee754_16bit(X)
+    # Shape: [N, n_vars + 1, 16]
+    X_combined = np.column_stack([X, y])
+    X_bits = to_ieee754_16bit(X_combined)
 
     # ── Step 3: Unit vectors ──────────────────────────────────────────────
     unit_matrix     = get_unit_matrix(meta.var_names)   # [n_vars, 5]
@@ -370,7 +370,9 @@ class AIFDataset(Dataset):
         # Why pad? Tensors in a batch must have identical shapes.
         # Padding with zeros is safe: the var_mask tells the model
         # which positions are real vs padding.
-        pad_vars = self.max_n_vars - n_vars
+        # X_bits currently has n_vars + 1 columns (inputs + y)
+        pad_vars = self.max_n_vars - (n_vars + 1)
+        y_unit = np.full((1, 5), 4, dtype=np.int64)
 
         if pad_vars > 0:
             # Pad X_bits with zeros along variable axis
@@ -382,16 +384,16 @@ class AIFDataset(Dataset):
 
             # Pad unit indices with 4 (= offset for exponent 0 = dimensionless)
             pad_u = np.full((pad_vars, 5), 4, dtype=np.int64)
-            unit_idx = np.concatenate([eq.unit_matrix_idx, pad_u], axis=0)
+            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit, pad_u], axis=0)
             # shape: [max_n_vars, 5]
         else:
-            unit_idx = eq.unit_matrix_idx
+            unit_idx = np.concatenate([eq.unit_matrix_idx, y_unit], axis=0)
         
         # ── Variable mask ─────────────────────────────────────────────────
         # 1.0 for real variables, 0.0 for padding
         # Used in the encoder to ignore padded variable slots
         var_mask = np.zeros(self.max_n_vars, dtype=np.float32)
-        var_mask[:n_vars] = 1.0
+        var_mask[:n_vars + 1] = 1.0
 
         return {
             # Encoder inputs
