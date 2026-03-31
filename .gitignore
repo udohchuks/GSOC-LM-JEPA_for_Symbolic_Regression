@@ -1,19 +1,82 @@
+# ======================
 # Data and Caches
+# ======================
 data/feynman/
 data/Feynman_with_units/
 cache/
 
+# ======================
 # Python
+# ======================
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 
+# ======================
 # PyTorch & Lightning
+# ======================
 *.pt
+*.pth
 *.ckpt
+*.bin
+*.pth.tar
 tb_logs/
 checkpoints/
+lightning_logs/
 
+# ======================
+# Results & Outputs
+# ======================
+results/
+*.log
+*.csv
+
+# ======================
 # Virtual Environment
+# ======================
 venv/
 .env
+.venv/
+env/
+
+# ======================
+# IDE & Editor
+# ======================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ======================
+# Jupyter Notebooks
+# ======================
+.ipynb_checkpoints/
+
+# ======================
+# Testing & Coverage
+# ======================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ======================
+# Temporary Files
+# ======================
+tmp/
+temp/
+*.tmp
+
+# ======================
+# Local Config & Tools
+# ======================
+.qwen/
+
+# ======================
+# Model Artifacts
+# ======================
+*.onnx
+*.tensorboard

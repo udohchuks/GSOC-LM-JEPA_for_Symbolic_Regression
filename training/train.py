@@ -153,8 +153,8 @@ def main():
         print(f"   Background loading: {'Active' if full_dataset._loading_complete == False else 'Complete'}")
     else:
         # Traditional Lazy loading from Drive
-        from data.synthetic_dataset import LazySyntheticDataset, ContiguousChunkSampler
-        
+        from data.synthetic_dataset import LazySyntheticDataset
+
         full_dataset = LazySyntheticDataset(
             cache_dir=cfg_data.get('synthetic_cache', 'cache/synthetic_1M'),
             max_n_vars=MAX_N_VARS,
