@@ -1412,18 +1412,27 @@ class LazySyntheticDataset(Dataset):
         
         new_files = [f for f in current_files if f not in self.all_files_seen]
         if new_files:
+            print(f"  Fast-scanning {len(new_files)} missing chunks...")
+            assumed_size = None
+            
             for pf in new_files:
                 if os.path.exists(pf) and os.path.getsize(pf) < 1024: continue
                 try:
-                    data = torch.load(pf, weights_only=False)
-                    size = len(data)
+                    if assumed_size is None:
+                        # Load only the first file to establish the baseline chunk size
+                        data = torch.load(pf, weights_only=False)
+                        assumed_size = len(data)
+                        size = assumed_size
+                        del data
+                    else:
+                        size = assumed_size
+                        
                     if size == 0: continue
                     self.all_files_seen.add(pf)
                     self.part_files.append(pf)
                     self.file_offsets.append(self.total_size)
                     self.file_sizes.append(size)
                     self.total_size += size
-                    del data
                 except: break
             
             # Save manifest for next time
